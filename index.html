@@ -258,7 +258,12 @@ tbody tr:last-child td{border-bottom:none}
 .control-panel{background:var(--surface-soft);border:1px solid var(--border);border-radius:var(--r-md);padding:14px}
 .control-panel h4{font-size:12px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
 .ctrl-row{display:flex;gap:8px;flex-wrap:wrap}
-.ctrl-btn{flex:1;min-width:110px}
+ .ctrl-btn{flex:1;min-width:110px}
+.ctrl-btn.is-active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 4px 12px rgba(37,99,235,.22)}
+.ctrl-btn.is-on{background:var(--success);color:#fff;border-color:var(--success)}
+.ctrl-btn.is-danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.ctrl-btn.is-locked{opacity:.55;cursor:not-allowed;filter:grayscale(.15)}
+.ctrl-btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important;box-shadow:none!important}
 .cmd-state{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-soft);line-height:1.6}
 .device-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px;transition:all .2s}
 .device-card:hover{border-color:var(--primary);box-shadow:var(--shadow-md);transform:translateY(-3px)}
@@ -550,22 +555,22 @@ tbody tr:last-child td{border-bottom:none}
             <div class="control-panel">
               <h4>Chế độ vận hành</h4>
               <div class="ctrl-row">
-                <button class="btn btn-primary ctrl-btn" onclick="sendMode('AUTO')">🤖 AUTO</button>
-                <button class="btn btn-ghost ctrl-btn" onclick="sendMode('MANUAL')">🖐 MANUAL</button>
+                <button id="ctrl-auto" class="btn btn-primary ctrl-btn" onclick="sendMode('AUTO')">🤖 AUTO</button>
+                <button id="ctrl-manual" class="btn btn-ghost ctrl-btn" onclick="sendMode('MANUAL')">🖐 MANUAL</button>
               </div>
             </div>
             <div class="control-panel">
               <h4>Cơ cấu chấp hành</h4>
               <div class="ctrl-row">
-                <button class="btn btn-ghost ctrl-btn" onclick="toggleRemote('fan')">🌀 Quạt</button>
-                <button class="btn btn-ghost ctrl-btn" onclick="toggleRemote('pump')">🚒 Bơm</button>
+                <button id="ctrl-fan" class="btn btn-ghost ctrl-btn" onclick="toggleRemote('fan')">🌀 Quạt</button>
+                <button id="ctrl-pump" class="btn btn-ghost ctrl-btn" onclick="toggleRemote('pump')">🚒 Bơm</button>
               </div>
             </div>
             <div class="control-panel">
               <h4>An toàn</h4>
               <div class="ctrl-row">
-                <button class="btn btn-ghost ctrl-btn" style="color:var(--danger);border-color:#fecaca" onclick="sendEmergency(true)">⛔ E-STOP</button>
-                <button class="btn btn-ghost ctrl-btn" onclick="clearEmergency()">✓ Giải phóng</button>
+                <button id="ctrl-estop" class="btn btn-ghost ctrl-btn" style="color:var(--danger);border-color:#fecaca" onclick="sendEmergency(true)">⛔ E-STOP</button>
+                <button id="ctrl-clear-estop" class="btn btn-ghost ctrl-btn" onclick="clearEmergency()">✓ Giải phóng</button>
               </div>
             </div>
             <div class="control-panel">
@@ -926,7 +931,7 @@ tbody tr:last-child td{border-bottom:none}
               <div class="device-row"><span class="k">Quạt TẮT</span><span class="v"><input id="set-fan-off" class="input" style="width:110px;height:32px" type="number" step="0.1" value="30.0"> °C</span></div>
               <div class="device-row"><span class="k">Bơm BẬT</span><span class="v"><input id="set-pump-on" class="input" style="width:110px;height:32px" type="number" step="0.1" value="50.0"> °C</span></div>
               <div class="device-row"><span class="k">Bơm TẮT</span><span class="v"><input id="set-pump-off" class="input" style="width:110px;height:32px" type="number" step="0.1" value="42.0"> °C</span></div>
-              <div class="device-row"><span class="k">Failsafe timeout</span><span class="v"><input id="set-timeouts" class="input" style="width:110px;height:32px" type="number" min="1" max="1" step="1" value="1" readonly> chu kỳ · bắt buộc</span></div>
+              <div class="device-row"><span class="k">Failsafe timeout</span><span class="v"><input id="set-timeouts" class="input" style="width:110px;height:32px" type="number" min="1" max="1" step="1" value="1" readonly aria-readonly="true" title="Failsafe được khóa ở 1 chu kỳ theo đặc tả an toàn"> chu kỳ</span></div>
               <div style="margin-top:10px"><button class="btn btn-primary" onclick="saveSettings()">💾 Đồng bộ cấu hình sang HMI</button></div>
             </div>
 
@@ -967,18 +972,6 @@ function parseTs(ts) {
   var d = new Date(ts);
   return isNaN(d.getTime()) ? new Date() : d;
 }
-function safeDate(ts) {
-  return parseTs(ts);
-}
-function esc(v) {
-  return String(v == null ? '' : v)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
-}
-function finiteNum(v, fallback) {
-  var n = Number(v);
-  return isFinite(n) ? n : fallback;
-}
 function timeAgo(d) {
   var s = Math.floor((Date.now() - d.getTime()) / 1000);
   if (s < 60) return s + 's ago';
@@ -990,13 +983,18 @@ function setText(id, val) { var e = $(id); if (e) e.textContent = val; }
 function setHTML(id, val) { var e = $(id); if (e) e.innerHTML = val; }
 function setClass(id, cls) { var e = $(id); if (e) e.className = cls; }
 function setStyle(id, prop, val) { var e = $(id); if (e) e.style[prop] = val; }
+function escapeHTML(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(ch) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
 
 /* =====================================================================
    STATE
    ===================================================================== */
 var state = {
   device: null,
-  current: { t: null, h: null, fan: false, pump: false, mode: '--' },
+  current: { t: null, h: null, fan: false, pump: false, mode: '--', comm_ok: true, failsafe: false, emergency_lock: false, heartbeat: 0 },
   history: [],
   alarms: [],
   seenKeys: {},
@@ -1009,11 +1007,15 @@ var state = {
   controlAck: null,
   settings: { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 },
   historySourceReady: false,
-  historyKeys: {},
   lastAckSequence: 0,
-  ackInitialized: false,
-  alarmsInitialized: false
+  lastSeenAlarmTs: 0,
+  hasAlarmReadBaseline: false,
+  activeToastKeys: {}
 };
+try {
+  var savedAlarmTs = localStorage.getItem('pumpvision_last_alarm_ts');
+  if (savedAlarmTs !== null) { state.lastSeenAlarmTs = Number(savedAlarmTs) || 0; state.hasAlarmReadBaseline = true; }
+} catch(e) {}
 var MAX_HISTORY = 300;
 
 try { state.device = localStorage.getItem('pumpvision_device'); } catch(e) {}
@@ -1094,6 +1096,7 @@ function navigate(view) {
   if (t) t.classList.add('active');
   var n = document.querySelector('[data-view="' + view + '"]');
   if (n) n.classList.add('active');
+  if (view === 'alarms') markAlarmsRead();
   try { location.hash = view; } catch(e) {}
   if (window.innerWidth <= 768) {
     if (sidebar) sidebar.classList.remove('open');
@@ -1171,11 +1174,13 @@ function initCharts() {
       },
       y: {
         position: 'left',
+        title: { display: true, text: 'Nhiệt độ (°C)', color: '#10b981' },
         ticks: { color: '#10b981', font: { size: 11 } },
         grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false }
       },
       y1: {
         position: 'right',
+        title: { display: true, text: 'Độ ẩm (%)', color: '#06b6d4' },
         ticks: { color: '#06b6d4', font: { size: 11 } },
         grid: { drawOnChartArea: false }, border: { display: false }
       }
@@ -1189,7 +1194,7 @@ function initCharts() {
 
 function updateChart(chart, history) {
   if (!chart) return;
-  chart.data.labels = history.map(function(p){ return fmtTime(safeDate(p.time)); });
+  chart.data.labels = history.map(function(p){ return fmtTime(p.time); });
   chart.data.datasets[0].data = history.map(function(p){ return p.t; });
   chart.data.datasets[1].data = history.map(function(p){ return p.h; });
   chart.update('none');
@@ -1203,20 +1208,17 @@ function renderDashboard() {
   if (c.t === null) return;
 
   var t = c.t, h = c.h, fan = c.fan, pump = c.pump, mode = c.mode;
-  var fanOn = finiteNum(state.settings.fan_on, 32);
-  var fanOff = finiteNum(state.settings.fan_off, 30);
-  var pumpOn = finiteNum(state.settings.pump_on, 50);
 
   setHTML('kpi-t-val', t.toFixed(1) + '<span class="kpi-unit">°C</span>');
-  var tClass = t >= pumpOn ? 'red' : t >= fanOn ? 'orange' : 'green';
+  var tClass = t >= 50 ? 'red' : t >= 32 ? 'orange' : 'green';
   setClass('kpi-t-val', 'kpi-value ' + tClass);
   setClass('kpi-t-bar', 'kpi-bar-fill ' + tClass);
   setStyle('kpi-t-bar', 'width', Math.min(100, (t/60)*100) + '%');
 
   var tBadge = $('kpi-t-badge');
   if (tBadge) {
-    if (t >= pumpOn) { tBadge.className = 'kpi-badge down'; tBadge.textContent = '⚠ Quá nhiệt'; }
-    else if (t >= fanOn) { tBadge.className = 'kpi-badge neutral'; tBadge.textContent = '▲ Cao'; }
+    if (t >= 50) { tBadge.className = 'kpi-badge down'; tBadge.textContent = '⚠ Quá nhiệt'; }
+    else if (t >= 32) { tBadge.className = 'kpi-badge neutral'; tBadge.textContent = '▲ Cao'; }
     else { tBadge.className = 'kpi-badge up'; tBadge.textContent = '✓ Bình thường'; }
   }
 
@@ -1240,7 +1242,7 @@ function renderDashboard() {
   setText('st-rs485-val', rs485Ok ? 'OK' : 'Timeout');
 
   setClass('st-cloud', 'status-led ' + (state.firebaseOk ? 'on' : 'warn'));
-  setText('st-cloud-val', state.firebaseOk ? 'Online' : 'Chờ dữ liệu');
+  setText('st-cloud-val', state.firebaseOk ? 'Trực tuyến' : 'Đang chờ');
 
   var failsafe = !!state.current.failsafe;
   setClass('st-failsafe', 'status-led ' + (failsafe ? 'err' : 'off'));
@@ -1253,6 +1255,7 @@ function renderDashboard() {
   setText('chart-range', state.history.length + ' điểm dữ liệu');
 
   renderAssets();
+  renderControlPanel();
 }
 
 function renderAssets() {
@@ -1290,11 +1293,11 @@ function renderRecentAlarms() {
   for (var i = 0; i < recent.length; i++) {
     var al = recent[i];
     var sev = al.severity.toLowerCase() === 'critical' ? 'critical' : al.severity.toLowerCase() === 'high' ? 'warning' : 'info';
-    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : 'ℹ️';
-    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : 'Cảnh báo';
+    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : al.type.indexOf('ACTUATOR') >= 0 ? '⚙️' : 'ℹ️';
+    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : al.type.indexOf('ACTUATOR') >= 0 ? 'Lỗi cơ cấu chấp hành' : 'Cảnh báo';
     html += '<div class="event-card ' + sev + '">';
     html += '<div class="event-icon ' + sev + '">' + icon + '</div>';
-    html += '<div class="event-body"><div class="event-title">' + esc(title) + '</div><div class="event-desc">' + esc(al.message) + '</div></div>';
+    html += '<div class="event-body"><div class="event-title">' + escapeHTML(title) + '</div><div class="event-desc">' + escapeHTML(al.message) + '</div></div>';
     html += '<div class="event-time">' + timeAgo(parseTs(al.timestamp)) + '</div>';
     html += '</div>';
   }
@@ -1339,10 +1342,6 @@ function renderDevices() {
   setText('dev-sht-h', c.h.toFixed(1) + ' %');
   setText('dev-rly-ch1', c.fan ? 'ON' : 'OFF');
   setText('dev-rly-ch2', c.pump ? 'ON' : 'OFF');
-  setText('dev-fan-on', 'T ≥ ' + finiteNum(state.settings.fan_on, 32).toFixed(1) + '°C');
-  setText('dev-fan-off', 'T ≤ ' + finiteNum(state.settings.fan_off, 30).toFixed(1) + '°C');
-  setText('dev-pump-on', 'T ≥ ' + finiteNum(state.settings.pump_on, 50).toFixed(1) + '°C');
-  setText('dev-pump-off', 'T ≤ ' + finiteNum(state.settings.pump_off, 42).toFixed(1) + '°C');
   setText('dev-fan-status', c.fan ? 'Đang quay' : 'Đứng yên');
   setText('dev-pump-status', c.pump ? 'Đang phun' : 'Đứng yên');
   setText('dev-cloud-status', state.firebaseOk ? 'Online' : 'Offline');
@@ -1374,11 +1373,10 @@ function renderAlarms() {
     var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : 'ℹ️ ';
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtFull(parseTs(al.timestamp)) + '</td>';
-    html += '<td>' + icon + '<b style="font-size:12px">' + esc(al.type) + '</b></td>';
-    html += '<td><span class="sev-pill ' + sevClass + '">' + esc(al.severity) + '</span></td>';
-    html += '<td style="color:var(--text-soft)">' + esc(al.message) + '</td>';
-    var at = al.temperature == null ? null : finiteNum(al.temperature, null);
-    html += '<td class="mono hide-mobile" style="font-weight:600">' + (at == null ? '—' : at.toFixed(1) + ' °C') + '</td>';
+    html += '<td>' + icon + '<b style="font-size:12px">' + al.type + '</b></td>';
+    html += '<td><span class="sev-pill ' + sevClass + '">' + al.severity + '</span></td>';
+    html += '<td style="color:var(--text-soft)">' + al.message + '</td>';
+    html += '<td class="mono hide-mobile" style="font-weight:600">' + (al.temperature != null ? al.temperature.toFixed(1) + ' °C' : '—') + '</td>';
     html += '</tr>';
   }
   tbody.innerHTML = html;
@@ -1399,7 +1397,16 @@ function renderAlarmStats() {
   var badge = $('nav-alarm-badge');
   if (badge) badge.textContent = total > 0 ? total : '';
   var bell = $('bell-dot');
-  if (bell) bell.style.display = total > 0 ? 'block' : 'none';
+  var latestTs = state.alarms.length ? parseTs(state.alarms[0].timestamp).getTime() : 0;
+  var hasUnread = latestTs > Number(state.lastSeenAlarmTs || 0);
+  if (bell) bell.style.display = hasUnread ? 'block' : 'none';
+}
+
+function markAlarmsRead() {
+  var latestTs = state.alarms.length ? parseTs(state.alarms[0].timestamp).getTime() : Date.now();
+  state.lastSeenAlarmTs = latestTs || Date.now();
+  try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
+  renderAlarmStats();
 }
 
 /* =====================================================================
@@ -1452,10 +1459,9 @@ function updateConnection() {
     return;
   }
   var age = (Date.now() - state.lastUpdate) / 1000;
-  if (!state.firebaseOk) { led.className = 'status-led err'; txt.textContent = 'Firebase Offline'; }
-  else if (age < 10) { led.className = 'status-led on'; txt.textContent = 'SCADA Online'; }
-  else if (age < 30) { led.className = 'status-led warn'; txt.textContent = 'Dữ liệu trễ'; }
-  else { led.className = 'status-led err'; txt.textContent = 'HMI mất kết nối'; }
+  if (age < 15) { led.className = 'status-led on'; txt.textContent = 'Trực tuyến'; }
+  else if (age < 60) { led.className = 'status-led warn'; txt.textContent = 'Trễ dữ liệu'; }
+  else { led.className = 'status-led err'; txt.textContent = 'Mất kết nối'; }
 }
 
 /* =====================================================================
@@ -1464,17 +1470,23 @@ function updateConnection() {
 function showToast(type, title, msg) {
   var c = $('toast');
   if (!c) return;
+  var key = [type, title, msg].join('|');
+  if (state.activeToastKeys[key]) return;
+  state.activeToastKeys[key] = true;
   var el = document.createElement('div');
   el.className = 'toast ' + type;
   var icons = { critical: '🔥', warning: '⚠️', success: '✅', info: 'ℹ️' };
   el.innerHTML = '<div class="toast-icon">' + (icons[type] || 'ℹ️') + '</div>' +
-                 '<div class="toast-body"><div class="toast-title">' + esc(title) + '</div>' +
-                 '<div class="toast-msg">' + esc(msg) + '</div></div>';
+                 '<div class="toast-body"><div class="toast-title">' + escapeHTML(title) + '</div>' +
+                 '<div class="toast-msg">' + escapeHTML(msg) + '</div></div>';
   c.appendChild(el);
   requestAnimationFrame(function(){ el.classList.add('show'); });
   setTimeout(function() {
     el.classList.remove('show');
-    setTimeout(function(){ if (el.parentNode) el.parentNode.removeChild(el); }, 400);
+    setTimeout(function(){
+      if (el.parentNode) el.parentNode.removeChild(el);
+      delete state.activeToastKeys[key];
+    }, 400);
   }, 5500);
 }
 
@@ -1493,7 +1505,9 @@ var audioCtx = null;
 window.enableSound = function() {
   try {
     var AC = window.AudioContext || window.webkitAudioContext;
-    audioCtx = new AC();
+    if (!AC) throw new Error('AudioContext unsupported');
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
     state.soundEnabled = true;
     setText('sound-status', 'Trạng thái: Đã bật ✓');
     var s = $('sound-status'); if (s) s.style.color = 'var(--success)';
@@ -1597,22 +1611,52 @@ function commandSequence() {
   try {
     var old = Number(localStorage.getItem('pumpvision_cmd_seq') || 0);
     var now = Date.now();
-    var seq = Math.max(old + 1, now);
+    var rnd = 0;
+    if (window.crypto && window.crypto.getRandomValues) {
+      var a = new Uint32Array(1); window.crypto.getRandomValues(a); rnd = a[0] % 1000000;
+    } else { rnd = Math.floor(Math.random() * 1000000); }
+    var seq = Math.max(old + 1, now * 1000000 + rnd);
     localStorage.setItem('pumpvision_cmd_seq', String(seq));
     return seq;
-  } catch(e) { return Date.now(); }
+  } catch(e) {
+    window.__cmdSeqFallback = Math.max(window.__cmdSeqFallback || 0, Date.now() * 1000000) + 1;
+    return window.__cmdSeqFallback;
+  }
+}
+
+function renderControlPanel() {
+  var c = state.current || {};
+  var mode = c.mode === 'MANUAL' ? 'MANUAL' : 'AUTO';
+  var locked = !!c.emergency_lock;
+  var autoBtn = $('ctrl-auto'), manualBtn = $('ctrl-manual');
+  var fanBtn = $('ctrl-fan'), pumpBtn = $('ctrl-pump');
+  var estopBtn = $('ctrl-estop'), clearBtn = $('ctrl-clear-estop');
+
+  if (autoBtn) { autoBtn.className = 'btn ctrl-btn ' + (mode === 'AUTO' ? 'btn-primary is-active' : 'btn-ghost'); autoBtn.disabled = locked; }
+  if (manualBtn) { manualBtn.className = 'btn ctrl-btn ' + (mode === 'MANUAL' ? 'btn-primary is-active' : 'btn-ghost'); manualBtn.disabled = locked; }
+  if (fanBtn) {
+    fanBtn.className = 'btn ctrl-btn ' + (c.fan ? 'is-on' : 'btn-ghost') + (locked ? ' is-locked' : '');
+    fanBtn.disabled = locked || mode !== 'MANUAL';
+    fanBtn.textContent = '🌀 Quạt · ' + (c.fan ? 'ON' : 'OFF');
+  }
+  if (pumpBtn) {
+    pumpBtn.className = 'btn ctrl-btn ' + (c.pump ? 'is-danger' : 'btn-ghost') + (locked ? ' is-locked' : '');
+    pumpBtn.disabled = locked || mode !== 'MANUAL' || !!c.failsafe;
+    pumpBtn.textContent = '🚒 Bơm · ' + (c.pump ? 'ON' : 'OFF');
+  }
+  if (estopBtn) { estopBtn.disabled = locked; estopBtn.className = 'btn btn-ghost ctrl-btn' + (locked ? ' is-locked' : ''); }
+  if (clearBtn) { clearBtn.disabled = !locked; clearBtn.className = 'btn ' + (locked ? 'btn-primary' : 'btn-ghost') + ' ctrl-btn'; }
 }
 
 function writeControl(fields) {
-  if (!state.db || !state.firebaseOk) {
-    showToast('warning', 'Firebase chưa sẵn sàng', 'Không gửi lệnh khi máy chủ chưa kết nối.');
+  if (!state.db) {
+    showToast('warning', 'Firebase chưa sẵn sàng', 'Không thể gửi lệnh xuống HMI.');
     return false;
   }
   var c = state.current;
-  var seq = commandSequence();
   var payload = {
-    command_sequence: seq,
-    mode_cmd: fields.mode_cmd || (c.mode === 'AUTO' || c.mode === 'MANUAL' ? c.mode : 'AUTO'),
+    command_sequence: commandSequence(),
+    mode_cmd: fields.mode_cmd || c.mode || 'AUTO',
     fan_cmd: typeof fields.fan_cmd === 'boolean' ? fields.fan_cmd : !!c.fan,
     pump_cmd: typeof fields.pump_cmd === 'boolean' ? fields.pump_cmd : !!c.pump,
     emergency_cmd: !!fields.emergency_cmd,
@@ -1621,23 +1665,38 @@ function writeControl(fields) {
     issued_at_ms: Date.now(),
     issued_by: 'ERP-WEB'
   };
-  setText('cmd-status', 'Đang gửi…');
-  setText('cmd-detail', 'SEQ ' + seq + ' · chờ HMI ACK…');
+  $('cmd-status').textContent = 'Đang gửi…';
   state.db.ref('control').set(payload).then(function() {
-    setText('cmd-status', 'Đã gửi · chờ ACK');
+    $('cmd-status').textContent = 'Đã gửi';
+    showToast('success', 'Lệnh đã gửi', 'HMI sẽ thực thi và trả ACK qua Firebase.');
   }).catch(function(err) {
-    setText('cmd-status', 'Lỗi gửi');
+    $('cmd-status').textContent = 'Lỗi gửi';
     showToast('critical', 'Không gửi được lệnh', err && err.message ? err.message : String(err));
   });
   return true;
 }
 
 window.sendMode = function(mode) {
+  if (state.current.emergency_lock && mode === 'AUTO') { showToast('warning','E-STOP đang khóa','Giải phóng E-STOP trước khi chuyển AUTO.'); return; }
   writeControl({mode_cmd: mode});
 };
 window.toggleRemote = function(kind) {
+  if (state.current.emergency_lock) {
+    showToast('warning', 'E-STOP đang khóa', 'Giải phóng E-STOP trước khi điều khiển cơ cấu.');
+    return;
+  }
+  if (state.current.mode !== 'MANUAL') {
+    showToast('warning', 'Chế độ AUTO', 'Hãy chuyển sang MANUAL trước khi điều khiển quạt/bơm.');
+    return;
+  }
   if (kind === 'fan') writeControl({mode_cmd:'MANUAL', fan_cmd: !state.current.fan, pump_cmd: state.current.pump});
-  if (kind === 'pump') writeControl({mode_cmd:'MANUAL', fan_cmd: state.current.fan, pump_cmd: !state.current.pump});
+  if (kind === 'pump') {
+    if (state.current.failsafe || state.current.comm_ok === false) {
+      showToast('warning', 'Interlock an toàn', 'Không cho phép bật bơm khi sensor/RS-485 chưa hợp lệ.');
+      return;
+    }
+    writeControl({mode_cmd:'MANUAL', fan_cmd: state.current.fan, pump_cmd: !state.current.pump});
+  }
 };
 window.sendEmergency = function(on) {
   writeControl({mode_cmd:'MANUAL', emergency_cmd: !!on, fan_cmd:false, pump_cmd:false});
@@ -1647,39 +1706,34 @@ window.clearEmergency = function() {
 };
 
 window.saveSettings = function() {
-  if (!state.db || !state.firebaseOk) { showToast('warning','Firebase chưa sẵn sàng','Không thể lưu cấu hình.'); return; }
+  if (!state.db) { showToast('warning','Firebase chưa sẵn sàng','Không thể lưu cấu hình.'); return; }
   var vals = {
     fan_on: Number($('set-fan-on').value),
     fan_off: Number($('set-fan-off').value),
     pump_on: Number($('set-pump-on').value),
     pump_off: Number($('set-pump-off').value),
-    max_timeouts: 1
+    max_timeouts: Number($('set-timeouts').value)
   };
-  if (![vals.fan_on,vals.fan_off,vals.pump_on,vals.pump_off].every(isFinite) ||
-      !(vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
-        vals.fan_off >= -40 && vals.fan_on <= 125 && vals.pump_off >= -40 && vals.pump_on <= 125)) {
-    showToast('warning','Cấu hình không hợp lệ','OFF phải thấp hơn ON; nhiệt độ phải nằm trong -40…125°C.');
+  if (!(Number.isFinite(vals.fan_on) && Number.isFinite(vals.fan_off) && Number.isFinite(vals.pump_on) && Number.isFinite(vals.pump_off) &&
+        vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
+        Number.isInteger(vals.max_timeouts) && vals.max_timeouts === 1)) {
+    showToast('warning','Cấu hình không hợp lệ','OFF phải thấp hơn ON; failsafe được khóa ở đúng 1 chu kỳ.');
     return;
   }
   state.db.ref('settings').set(vals).then(function(){
-    state.settings = Object.assign({}, state.settings, vals);
     showToast('success','Đã lưu cấu hình','Thông số đã đồng bộ sang HMI.');
   }).catch(function(err){ showToast('critical','Lưu thất bại', String(err)); });
 };
 
 function sanitizeSettings(v) {
-  v = v || {};
-  var fanOn = finiteNum(v.fan_on, 32);
-  var fanOff = finiteNum(v.fan_off, 30);
-  var pumpOn = finiteNum(v.pump_on, 50);
-  var pumpOff = finiteNum(v.pump_off, 42);
-  var valid = isFinite(fanOn) && isFinite(fanOff) && isFinite(pumpOn) && isFinite(pumpOff) &&
-              fanOff < fanOn && pumpOff < pumpOn &&
-              fanOff >= -40 && fanOn <= 125 && pumpOff >= -40 && pumpOn <= 125;
-  if (!valid) {
-    fanOn=32; fanOff=30; pumpOn=50; pumpOff=42;
-  }
-  return {fan_on:fanOn, fan_off:fanOff, pump_on:pumpOn, pump_off:pumpOff, max_timeouts:1};
+  var d = { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
+  if (!v || typeof v !== 'object') return d;
+  ['fan_on','fan_off','pump_on','pump_off'].forEach(function(k){
+    var n = Number(v[k]); if (Number.isFinite(n)) d[k] = n;
+  });
+  d.max_timeouts = 1;
+  if (!(d.fan_off < d.fan_on && d.pump_off < d.pump_on)) return { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
+  return d;
 }
 
 function initFirebase() {
@@ -1706,20 +1760,18 @@ function initFirebase() {
     db.ref('system_status').on('value', function(snap) {
       var v = snap.val();
       if (!v) return;
-      var ts = safeDate(v.timestamp);
       state.current = {
-        t: finiteNum(v.temperature, 0), h: finiteNum(v.humidity, 0),
+        t: Number(v.temperature), h: Number(v.humidity),
         fan: !!v.fan_state, pump: !!v.pump_state,
-        mode: (v.mode === 'MANUAL' ? 'MANUAL' : 'AUTO'),
+        mode: v.mode || 'AUTO',
         comm_ok: v.comm_ok !== false,
         failsafe: !!v.failsafe,
         emergency_lock: !!v.emergency_lock,
-        heartbeat: finiteNum(v.heartbeat, 0),
-        last_command_sequence: finiteNum(v.last_command_sequence, 0),
-        last_command_result: v.last_command_result || '',
-        last_command_message: v.last_command_message || ''
+        heartbeat: Number(v.heartbeat || 0),
+        last_command_sequence: Number(v.last_command_sequence || 0),
+        last_command_result: v.last_command_result || ''
       };
-      state.lastUpdate = isNaN(ts.getTime()) ? Date.now() : ts.getTime();
+      state.lastUpdate = v.timestamp ? parseTs(v.timestamp).getTime() : Date.now();
       if (!state.historySourceReady) {
         state.history.push({time: parseTs(v.timestamp), t: state.current.t||0, h: state.current.h||0, fan:state.current.fan, pump:state.current.pump, mode:state.current.mode});
         if (state.history.length > MAX_HISTORY) state.history.shift();
@@ -1734,8 +1786,7 @@ function initFirebase() {
       var v = snap.val() || {}, list = [];
       Object.keys(v).forEach(function(k){
         var p = v[k] || {};
-        var pt = safeDate(p.timestamp);
-        list.push({key:k, time:pt, t:finiteNum(p.temperature,0), h:finiteNum(p.humidity,0), fan:!!p.fan_state, pump:!!p.pump_state, mode:p.mode==='MANUAL'?'MANUAL':'AUTO'});
+        list.push({key:k, time:parseTs(p.timestamp), t:Number(p.temperature||0), h:Number(p.humidity||0), fan:!!p.fan_state, pump:!!p.pump_state, mode:p.mode||'AUTO'});
       });
       list.sort(function(a,b){ return a.time - b.time; });
       state.history = list.slice(-MAX_HISTORY);
@@ -1751,15 +1802,16 @@ function initFirebase() {
       });
       list.sort(function(a,b){ return parseTs(b.timestamp)-parseTs(a.timestamp); });
       state.alarms = list;
-      if (!state.alarmsInitialized) {
-        for (var i0=0;i0<list.length;i0++) state.seenKeys[list[i0].key] = true;
-        state.alarmsInitialized = true;
-      } else {
-        for (var i=0;i<list.length;i++) {
-          if (!state.seenKeys[list[i].key]) {
-            state.seenKeys[list[i].key] = true;
-            toastAlarm(list[i]);
-          }
+      if (!state.hasAlarmReadBaseline) {
+        state.lastSeenAlarmTs = list.length ? parseTs(list[0].timestamp).getTime() : Date.now();
+        state.hasAlarmReadBaseline = true;
+        try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
+      }
+      for (var i=0;i<list.length;i++) {
+        if (!state.seenKeys[list[i].key]) {
+          state.seenKeys[list[i].key] = true;
+          state.seenKeysCount++;
+          if (state.seenKeysCount > 1) toastAlarm(list[i]);
         }
       }
       renderAlarms(); renderAlarmStats(); renderRecentAlarms();
@@ -1768,21 +1820,15 @@ function initFirebase() {
     db.ref('settings').on('value', function(snap){
       var v = snap.val(); if (!v) return;
       state.settings = sanitizeSettings(v);
-      ['fan_on','fan_off','pump_on','pump_off','max_timeouts'].forEach(function(k){ if ($('set-'+k)) $('set-'+k).value = state.settings[k]; });
-      renderDashboard();
+      ['fan_on','fan_off','pump_on','pump_off','max_timeouts'].forEach(function(k){ if ($(('set-'+k))) $('set-'+k).value = state.settings[k]; });
       renderDevices();
-    }, function(err){ console.error('[Firebase] Lỗi settings:', err); });
+    });
 
     db.ref('control_ack').on('value', function(snap){
       var v = snap.val(); if (!v) return;
       var seq = Number(v.command_sequence || 0);
       state.controlAck = v;
-      if (!state.ackInitialized) {
-        state.lastAckSequence = seq;
-        state.ackInitialized = true;
-        setText('cmd-status', 'Sẵn sàng');
-        setText('cmd-detail', seq ? ('ACK cũ · SEQ ' + seq) : 'Chưa có ACK.');
-      } else if (seq && seq > state.lastAckSequence) {
+      if (seq && seq >= state.lastAckSequence) {
         state.lastAckSequence = seq;
         setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
         setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
@@ -1838,9 +1884,6 @@ setTimeout(function() {
 // Global error catch
 window.addEventListener('error', function(e) {
   console.error('[Global error]', e.message || e.error);
-});
-window.addEventListener('unhandledrejection', function(e) {
-  console.error('[Unhandled promise]', e.reason || e);
 });
 </script>
 </body>

@@ -956,6 +956,7 @@ tbody tr:last-child td{border-bottom:none}
 <!-- Firebase Compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
 <script>
 /* =====================================================================
@@ -988,6 +989,18 @@ function escapeHTML(v) {
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
   });
 }
+/* Ép về số hữu hạn — dữ liệu đến từ Firebase nên không tin được kiểu/giá trị.
+   Lưu ý null/undefined/'' phải là RỚT XUỐNG fallback (Number(null) === 0). */
+function num(v, fallback) {
+  if (v === null || v === undefined || v === '') return fallback;
+  var n = Number(v);
+  return isFinite(n) ? n : fallback;
+}
+/* Lấy chuỗi an toàn khi chèn vào innerHTML (phòng stored XSS qua Firebase). */
+function safe(v, fallback) {
+  if (v == null) return fallback == null ? '' : fallback;
+  return escapeHTML(String(v));
+}
 
 /* =====================================================================
    STATE
@@ -998,7 +1011,6 @@ var state = {
   history: [],
   alarms: [],
   seenKeys: {},
-  seenKeysCount: 0,
   lastUpdate: null,
   startTime: Date.now(),
   soundEnabled: false,
@@ -1007,9 +1019,14 @@ var state = {
   controlAck: null,
   settings: { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 },
   historySourceReady: false,
+  alarmsBaselineReady: false,   // snapshot đầu tiên của /alarms = baseline, KHÔNG toast
+  ackBaselineReady: false,      // ACK cũ từ phiên trước KHÔNG được báo như lệnh mới
   lastAckSequence: 0,
   lastSeenAlarmTs: 0,
   hasAlarmReadBaseline: false,
+  authOk: false,
+  pendingCmd: null,             // {seq, timer} — theo dõi ACK cho lệnh đang bay
+  pendingSettings: null,        // {vals, timer} — vừa lưu /settings, chờ xác nhận
   activeToastKeys: {}
 };
 try {
@@ -1205,7 +1222,13 @@ function updateChart(chart, history) {
    ===================================================================== */
 function renderDashboard() {
   var c = state.current;
-  if (c.t === null) return;
+  // Panel điều khiển cần được cập nhật NGAY cả khi chưa có số liệu cảm biến,
+  // nếu không các nút (E-STOP / AUTO / MANUAL) sẽ giữ trạng thái enabled sai.
+  renderControlPanel();
+  // LƯU Ý: isFinite(null) === true (null → 0) nên PHẢI kiểm tra typeof,
+  // nếu không sẽ lao vào t.toFixed(1) trên null khi Firebase chưa có dữ liệu.
+  if (typeof c.t !== 'number' || !isFinite(c.t)) return;
+  if (typeof c.h !== 'number' || !isFinite(c.h)) return;
 
   var t = c.t, h = c.h, fan = c.fan, pump = c.pump, mode = c.mode;
 
@@ -1255,7 +1278,6 @@ function renderDashboard() {
   setText('chart-range', state.history.length + ' điểm dữ liệu');
 
   renderAssets();
-  renderControlPanel();
 }
 
 function renderAssets() {
@@ -1322,11 +1344,11 @@ function renderMonitoring() {
     var r = rows[i];
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtDT(r.time) + '</td>';
-    html += '<td class="mono" style="font-weight:700">' + r.t.toFixed(1) + ' °C</td>';
-    html += '<td class="mono">' + r.h.toFixed(1) + ' %</td>';
+    html += '<td class="mono" style="font-weight:700">' + num(r.t, 0).toFixed(1) + ' °C</td>';
+    html += '<td class="mono">' + num(r.h, 0).toFixed(1) + ' %</td>';
     html += '<td><span class="sev-pill ' + (r.fan ? 'ok' : 'off') + '">' + (r.fan ? 'ON' : 'OFF') + '</span></td>';
     html += '<td><span class="sev-pill ' + (r.pump ? 'critical' : 'off') + '">' + (r.pump ? 'ON' : 'OFF') + '</span></td>';
-    html += '<td class="hide-mobile"><span class="sev-pill ' + (r.mode === 'AUTO' ? 'info' : 'high') + '">' + r.mode + '</span></td>';
+    html += '<td class="hide-mobile"><span class="sev-pill ' + (r.mode === 'AUTO' ? 'info' : 'high') + '">' + safe(r.mode, 'AUTO') + '</span></td>';
     html += '</tr>';
   }
   tbody.innerHTML = html;
@@ -1373,10 +1395,11 @@ function renderAlarms() {
     var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : 'ℹ️ ';
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtFull(parseTs(al.timestamp)) + '</td>';
-    html += '<td>' + icon + '<b style="font-size:12px">' + al.type + '</b></td>';
-    html += '<td><span class="sev-pill ' + sevClass + '">' + al.severity + '</span></td>';
-    html += '<td style="color:var(--text-soft)">' + al.message + '</td>';
-    html += '<td class="mono hide-mobile" style="font-weight:600">' + (al.temperature != null ? al.temperature.toFixed(1) + ' °C' : '—') + '</td>';
+    html += '<td>' + icon + '<b style="font-size:12px">' + safe(al.type, 'UNKNOWN') + '</b></td>';
+    html += '<td><span class="sev-pill ' + sevClass + '">' + safe(al.severity, 'INFO') + '</span></td>';
+    html += '<td style="color:var(--text-soft)">' + safe(al.message, '') + '</td>';
+    html += '<td class="mono hide-mobile" style="font-weight:600">' +
+            (al.temperature != null ? num(al.temperature, 0).toFixed(1) + ' °C' : '—') + '</td>';
     html += '</tr>';
   }
   tbody.innerHTML = html;
@@ -1395,16 +1418,19 @@ function renderAlarmStats() {
   setText('al-24h', d24);
 
   var badge = $('nav-alarm-badge');
-  if (badge) badge.textContent = total > 0 ? total : '';
+  var seenTs = Number(state.lastSeenAlarmTs || 0);
+  var unread = 0;
+  for (var k = 0; k < state.alarms.length; k++) {
+    if (parseTs(state.alarms[k].timestamp).getTime() > seenTs) unread++;
+  }
+  if (badge) badge.textContent = unread > 0 ? String(unread) : '';
   var bell = $('bell-dot');
-  var latestTs = state.alarms.length ? parseTs(state.alarms[0].timestamp).getTime() : 0;
-  var hasUnread = latestTs > Number(state.lastSeenAlarmTs || 0);
-  if (bell) bell.style.display = hasUnread ? 'block' : 'none';
+  if (bell) bell.style.display = unread > 0 ? 'block' : 'none';
 }
 
 function markAlarmsRead() {
   var latestTs = state.alarms.length ? parseTs(state.alarms[0].timestamp).getTime() : Date.now();
-  state.lastSeenAlarmTs = latestTs || Date.now();
+  state.lastSeenAlarmTs = Math.max(latestTs || 0, Number(state.lastSeenAlarmTs || 0));
   try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
   renderAlarmStats();
 }
@@ -1602,8 +1628,12 @@ window.clearAlarmFilters = function() {
    FIREBASE
    ===================================================================== */
 var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDxqB-Dcr6oBlAjn-16dT6gccFALLZnNOA",
   databaseURL: "https://pumpwatersys-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
+/* Cùng tài khoản mà HMI.py đăng ký/đăng nhập — để Rules {"auth != null"}
+   hoạt động được cho CẢ HMI lẫn web. Chi tiết: mục FIREBASE_SETUP trong HMI.py. */
+var FIREBASE_DEMO_USER = { email: "scada@pumpwatersys.local", password: "scada_demo_2025" };
 
 setText('set-url', FIREBASE_CONFIG.databaseURL.split('//')[1]);
 
@@ -1648,6 +1678,57 @@ function renderControlPanel() {
   if (clearBtn) { clearBtn.disabled = !locked; clearBtn.className = 'btn ' + (locked ? 'btn-primary' : 'btn-ghost') + ' ctrl-btn'; }
 }
 
+var ACK_TIMEOUT_MS = 12000;
+
+function setStatus(t) { var e = $('cmd-status'); if (e) e.textContent = t; }
+
+/* Ép trạng thái vừa gửi vào state.current NGAY LẬP TỨC (optimistic update):
+   1) Giao diện phản hồi tức thì thay vì chờ /system_status (5s) — E-STOP hiện
+      lock ngay, nút AUTO/MANUAL đổi màu ngay.
+   2) Quan trọng hơn: lệnh thứ 2 được xây trên trạng thái MỚI. Nếu không, khi
+      bạn bật quạt rồi bấm bơm trong vòng 5s, lệnh bơm sẽ mang fan_cmd=false
+      (giá trị cũ còn đọc trong /system_status) và TẮT NGƯỢC quạt vừa bật. */
+function applyLocalState(p) {
+  if (p.mode_cmd) state.current.mode = p.mode_cmd;
+  state.current.fan = !!p.fan_cmd;
+  state.current.pump = !!p.pump_cmd;
+  if (p.emergency_cmd) state.current.emergency_lock = true;
+  else if (p.clear_emergency) state.current.emergency_lock = false;
+  renderDashboard(); renderDevices();
+}
+
+/* Ép trạng thái HMI trả về trong ACK — nguồn dữ liệu xác thực. */
+function applyAckState(v) {
+  var c = state.current;
+  if (v.mode) c.mode = v.mode;
+  if (typeof v.fan_state === 'boolean') c.fan = v.fan_state;
+  if (typeof v.pump_state === 'boolean') c.pump = v.pump_state;
+  if (typeof v.emergency_lock === 'boolean') c.emergency_lock = v.emergency_lock;
+  renderDashboard(); renderDevices();
+}
+
+function clearCommandWatch() {
+  if (state.pendingCmd && state.pendingCmd.timer) clearTimeout(state.pendingCmd.timer);
+  state.pendingCmd = null;
+}
+
+function watchAck(seq) {
+  clearCommandWatch();
+  state.pendingCmd = { seq: seq, timer: null };
+}
+
+function startAckTimeout(seq) {
+  if (!state.pendingCmd || state.pendingCmd.seq !== seq) return;
+  state.pendingCmd.timer = setTimeout(function() {
+    if (!state.pendingCmd || state.pendingCmd.seq !== seq) return;
+    state.pendingCmd = null;
+    setStatus('Không có phản hồi');
+    showToast('warning', 'HMI chưa ACK',
+      'Không nhận được xác nhận trong ' + (ACK_TIMEOUT_MS / 1000) +
+      's. Kiểm tra HMI Python có đang chạy và có kết nối Firebase không.');
+  }, ACK_TIMEOUT_MS);
+}
+
 function writeControl(fields) {
   if (!state.db) {
     showToast('warning', 'Firebase chưa sẵn sàng', 'Không thể gửi lệnh xuống HMI.');
@@ -1665,12 +1746,17 @@ function writeControl(fields) {
     issued_at_ms: Date.now(),
     issued_by: 'ERP-WEB'
   };
-  $('cmd-status').textContent = 'Đang gửi…';
+
+  applyLocalState(payload);          // phản hồi UI tức thì + đúng cho lệnh kế tiếp
+  watchAck(payload.command_sequence); // bắt đầu theo dõi ACK TRƯỚC khi set()
+  setStatus('Đang gửi…');
+
   state.db.ref('control').set(payload).then(function() {
-    $('cmd-status').textContent = 'Đã gửi';
-    showToast('success', 'Lệnh đã gửi', 'HMI sẽ thực thi và trả ACK qua Firebase.');
+    setStatus('Đã gửi · chờ ACK');
+    startAckTimeout(payload.command_sequence);
   }).catch(function(err) {
-    $('cmd-status').textContent = 'Lỗi gửi';
+    setStatus('Lỗi gửi');
+    if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) clearCommandWatch();
     showToast('critical', 'Không gửi được lệnh', err && err.message ? err.message : String(err));
   });
   return true;
@@ -1716,24 +1802,77 @@ window.saveSettings = function() {
   };
   if (!(Number.isFinite(vals.fan_on) && Number.isFinite(vals.fan_off) && Number.isFinite(vals.pump_on) && Number.isFinite(vals.pump_off) &&
         vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
+        // Khớp với ControlEngine.update_settings(): quạt phải làm mát TRƯỚC
+        // khi bơm báo cháy, nếu không hệ thống sẽ xịt nước trước cả khi làm mát.
+        vals.fan_on <= vals.pump_on && vals.fan_off <= vals.pump_off &&
         Number.isInteger(vals.max_timeouts) && vals.max_timeouts === 1)) {
-    showToast('warning','Cấu hình không hợp lệ','OFF phải thấp hơn ON; failsafe được khóa ở đúng 1 chu kỳ.');
+    showToast('warning','Cấu hình không hợp lệ','OFF phải thấp hơn ON, QUẠT phải ≤ BƠM; failsafe được khóa ở đúng 1 chu kỳ.');
     return;
   }
-  state.db.ref('settings').set(vals).then(function(){
-    showToast('success','Đã lưu cấu hình','Thông số đã đồng bộ sang HMI.');
-  }).catch(function(err){ showToast('critical','Lưu thất bại', String(err)); });
+  if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
+  state.pendingSettings = {
+    vals: vals,
+    // Nếu HMI từ chối, listener /settings sẽ ghi đè lại và báo NGAY (xem dưới).
+    // Còn lại: sau 4s không bị ghi đè → coi như HMI đã nhận.
+    timer: setTimeout(function(){
+      state.pendingSettings = null;
+      showToast('success','Đã lưu cấu hình','Thông số đã đồng bộ sang HMI.');
+    }, 4000)
+  };
+  showToast('info','Đang đồng bộ cấu hình','Chờ HMI xác nhận…');
+  state.db.ref('settings').set(vals).catch(function(err){
+    if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
+    showToast('critical','Lưu thất bại', String(err));
+  });
 };
 
 function sanitizeSettings(v) {
   var d = { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
   if (!v || typeof v !== 'object') return d;
+  // Dùng num() thay vì Number(): Number(null) === 0 nên giá trị null trong DB
+  // sẽ bị hiểu là 0 °C (fan_off = 0) thay vì rơi về mặc định an toàn.
   ['fan_on','fan_off','pump_on','pump_off'].forEach(function(k){
-    var n = Number(v[k]); if (Number.isFinite(n)) d[k] = n;
+    var n = num(v[k], NaN); if (Number.isFinite(n)) d[k] = n;
   });
   d.max_timeouts = 1;
-  if (!(d.fan_off < d.fan_on && d.pump_off < d.pump_on)) return { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
+  if (!(d.fan_off < d.fan_on && d.pump_off < d.pump_on &&
+        d.fan_on <= d.pump_on && d.fan_off <= d.pump_off)) {
+    return { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
+  }
   return d;
+}
+
+/* ---------- Hỗ trợ lịch sử dạng mảng có key (xem histRef ở dưới) ---------- */
+function historyEntry(key, p) {
+  return { key: key, time: parseTs(p.timestamp),
+           t: num(p.temperature, 0), h: num(p.humidity, 0),
+           fan: p.fan_state === true, pump: p.pump_state === true,
+           mode: String(p.mode || 'AUTO') };
+}
+function historyIndexByKey(key) {
+  for (var i = 0; i < state.history.length; i++) {
+    if (state.history[i].key === key) return i;
+  }
+  return -1;
+}
+function insertHistory(entry) {
+  var idx = historyIndexByKey(entry.key);
+  if (idx >= 0) { state.history[idx] = entry; return; }
+  var pos = state.history.length;
+  // Key là chuỗi mili-giây cùng độ dài (13 ký tự) → so sánh chuỗi = so sánh thời gian.
+  while (pos > 0 && state.history[pos-1].key && state.history[pos-1].key > entry.key) pos--;
+  state.history.splice(pos, 0, entry);
+  while (state.history.length > MAX_HISTORY) state.history.shift();
+}
+var historyRenderTimer = null;
+/* child_added lúc khởi động bắn ~150 sự kiện liên tiếp → gộp lại 1 lần render,
+   nếu không dashboard sẽ re-render 150 lần trong 100ms đầu. */
+function scheduleHistoryRender() {
+  if (historyRenderTimer) return;
+  historyRenderTimer = setTimeout(function() {
+    historyRenderTimer = null;
+    renderDashboard(); renderMonitoring(); renderReports();
+  }, 150);
 }
 
 function initFirebase() {
@@ -1745,14 +1884,54 @@ function initFirebase() {
   }
   try {
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    var db = firebase.database();
-    state.db = db;
+  } catch (e) {
+    console.error('[Firebase] Init thất bại:', e);
     state.firebaseOk = false;
-    setText('set-conn', 'Đang kết nối…');
+    setText('set-conn', 'OFFLINE');
+    setTimeout(function(){ showToast('warning','⚠️ Firebase không khả dụng','Kiểm tra mạng và Firebase Rules.'); },1500);
+    return;
+  }
+  startAfterAuth();
+}
+
+/* Đăng nhập tài khoản demo (cùng email/password với HMI.py) để Rules
+   {"auth != null"} hoạt động được — nếu để Rules open thì ai cũng có databaseURL
+   đều điều khiển được quạt + bơm.
+   Auth TUYỆT ĐỐI KHÔNG chặn luồng dữ liệu: SDK auth thiếu / lỗi mạng / rules
+   vẫn đang mở → sau tối đa 4s (guard) đường dữ liệu vẫn mở ra. */
+function startAfterAuth() {
+  var started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    startRealtime();
+  }
+  var guard = setTimeout(start, 4000);
+  try {
+    if (typeof firebase.auth !== 'function') { clearTimeout(guard); start(); return; }
+    var p = firebase.auth().signInWithEmailAndPassword(
+              FIREBASE_DEMO_USER.email, FIREBASE_DEMO_USER.password);
+    var done = function(ok) {
+      state.authOk = !!ok;
+      if (!ok) console.warn('[Firebase] Không đăng nhập được tài khoản demo — cần Rules mở hoặc tạo user này trên Console.');
+      clearTimeout(guard);
+      start();
+    };
+    if (p && typeof p.then === 'function') p.then(function(){ done(true); }, function(){ done(false); });
+    else done(false);
+  } catch (e) { clearTimeout(guard); start(); }
+}
+
+function startRealtime() {
+  var db = firebase.database();
+  state.db = db;
+  state.firebaseOk = false;
+  setText('set-conn', 'Đang kết nối…');
+  try {
 
     db.ref('.info/connected').on('value', function(snap){
       state.firebaseOk = !!snap.val();
-      setText('set-conn', state.firebaseOk ? 'Online ✓' : 'Offline');
+      setText('set-conn', (state.firebaseOk ? 'Online ✓' : 'Offline') + (state.authOk ? ' · Auth OK' : ' · Auth OFF'));
       var sc = $('set-conn'); if (sc) sc.style.color = state.firebaseOk ? 'var(--success)' : 'var(--danger)';
       renderDashboard();
     });
@@ -1760,20 +1939,27 @@ function initFirebase() {
     db.ref('system_status').on('value', function(snap) {
       var v = snap.val();
       if (!v) return;
+      var prev = state.current;
       state.current = {
-        t: Number(v.temperature), h: Number(v.humidity),
+        // num() với fallback = số cũ: tránh ghi NaN vào KPI khi thiếu trường.
+        t: num(v.temperature, isFinite(prev.t) ? prev.t : null),
+        h: num(v.humidity,   isFinite(prev.h) ? prev.h : null),
         fan: !!v.fan_state, pump: !!v.pump_state,
         mode: v.mode || 'AUTO',
         comm_ok: v.comm_ok !== false,
         failsafe: !!v.failsafe,
         emergency_lock: !!v.emergency_lock,
-        heartbeat: Number(v.heartbeat || 0),
-        last_command_sequence: Number(v.last_command_sequence || 0),
-        last_command_result: v.last_command_result || ''
+        heartbeat: num(v.heartbeat, 0),
+        last_command_sequence: num(v.last_command_sequence, 0),
+        last_command_result: String(v.last_command_result || '')
       };
       state.lastUpdate = v.timestamp ? parseTs(v.timestamp).getTime() : Date.now();
       if (!state.historySourceReady) {
-        state.history.push({time: parseTs(v.timestamp), t: state.current.t||0, h: state.current.h||0, fan:state.current.fan, pump:state.current.pump, mode:state.current.mode});
+        // Điểm tạm thời CHƯA có key — sẽ bị loại bỏ ngay khi listener
+        // /history (child_added) của chính nó bắt đầu nhận dữ liệu.
+        state.history.push({key: null, time: parseTs(v.timestamp),
+                             t: state.current.t||0, h: state.current.h||0,
+                             fan:state.current.fan, pump:state.current.pump, mode:state.current.mode});
         if (state.history.length > MAX_HISTORY) state.history.shift();
       }
       renderDashboard(); renderMonitoring(); renderReports(); renderDevices();
@@ -1782,36 +1968,68 @@ function initFirebase() {
       state.firebaseOk = false;
     });
 
-    db.ref('history').limitToLast(MAX_HISTORY).on('value', function(snap) {
-      var v = snap.val() || {}, list = [];
-      Object.keys(v).forEach(function(k){
-        var p = v[k] || {};
-        list.push({key:k, time:parseTs(p.timestamp), t:Number(p.temperature||0), h:Number(p.humidity||0), fan:!!p.fan_state, pump:!!p.pump_state, mode:p.mode||'AUTO'});
-      });
-      list.sort(function(a,b){ return a.time - b.time; });
-      state.history = list.slice(-MAX_HISTORY);
-      state.historySourceReady = true;
-      renderDashboard(); renderMonitoring(); renderReports();
+    /* ---------------------------------------------------------------------
+       HISTORY — dùng child_added / child_changed / child_removed thay vì
+       value + limitToLast. Bản cũ tải lại TOÀN BỘ 300 bản ghi mỗi 5 giây
+       (~90KB/5s ≈ 46GB/tháng — vượt hạn mức tải 10GB/tháng của Firebase
+       RTDB free). Bây giờ mỗi chu kỳ chỉ tải THÊM 1 bản ghi (~400B).
+       --------------------------------------------------------------------- */
+    var histRef = db.ref('history').orderByKey().limitToLast(MAX_HISTORY);
+
+    histRef.on('child_added', function(snap) {
+      if (!state.historySourceReady) {
+        // Loại các điểm tạm (key = null) lấy từ /system_status.
+        state.history = state.history.filter(function(x){ return !!x.key; });
+        state.historySourceReady = true;
+      }
+      insertHistory(historyEntry(snap.key, snap.val() || {}));
+      scheduleHistoryRender();
+    });
+    histRef.on('child_changed', function(snap) {
+      insertHistory(historyEntry(snap.key, snap.val() || {}));
+      scheduleHistoryRender();
+    });
+    histRef.on('child_removed', function(snap) {
+      // limitToLast trượt cửa sổ → bản ghi đầu tiên bị đẩy ra ngoài.
+      var i = historyIndexByKey(snap.key);
+      if (i >= 0) { state.history.splice(i, 1); scheduleHistoryRender(); }
     }, function(err){ console.warn('[Firebase] history:', err); });
 
     db.ref('alarms').limitToLast(200).on('value', function(snap) {
       var v = snap.val() || {}, list = [];
       Object.keys(v).forEach(function(k){
         var a = v[k] || {};
-        list.push({key:k, type:a.type||'UNKNOWN', message:a.message||'', temperature:a.temperature, timestamp:a.timestamp, severity:a.type==='FIRE'?'CRITICAL':a.type==='COMM_LOSS'?'HIGH':'INFO'});
+        var type = String(a.type || 'UNKNOWN');
+        var tnum = (a.temperature == null || a.temperature === '') ? null : Number(a.temperature);
+        list.push({
+          key: k,
+          type: type,                                   // chuỗi → sẽ escape khi render
+          message: String(a.message || ''),
+          temperature: isFinite(tnum) ? tnum : null,     // tránh .toFixed() ném lỗi
+          timestamp: a.timestamp,
+          severity: type === 'FIRE' ? 'CRITICAL' : type === 'COMM_LOSS' ? 'HIGH' : 'INFO'
+        });
       });
       list.sort(function(a,b){ return parseTs(b.timestamp)-parseTs(a.timestamp); });
       state.alarms = list;
-      if (!state.hasAlarmReadBaseline) {
-        state.lastSeenAlarmTs = list.length ? parseTs(list[0].timestamp).getTime() : Date.now();
-        state.hasAlarmReadBaseline = true;
-        try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
-      }
-      for (var i=0;i<list.length;i++) {
-        if (!state.seenKeys[list[i].key]) {
-          state.seenKeys[list[i].key] = true;
-          state.seenKeysCount++;
-          if (state.seenKeysCount > 1) toastAlarm(list[i]);
+
+      if (!state.alarmsBaselineReady) {
+        // Snapshot ĐẦU TIÊN khi mở trang = lịch sử cũ → chỉ đánh dấu đã xem,
+        // KHÔNG toast. Cách cũ (seenKeysCount > 1) chỉ bỏ qua đúng 1 mục nên
+        // toàn bộ báo cáo cũ bị "phát" như thể vừa xảy ra ở mọi lần mở trang.
+        state.alarmsBaselineReady = true;
+        for (var b = 0; b < list.length; b++) state.seenKeys[list[b].key] = true;
+        if (!state.hasAlarmReadBaseline) {
+          state.lastSeenAlarmTs = list.length ? parseTs(list[0].timestamp).getTime() : Date.now();
+          state.hasAlarmReadBaseline = true;
+          try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
+        }
+      } else {
+        for (var i = 0; i < list.length; i++) {
+          if (!state.seenKeys[list[i].key]) {
+            state.seenKeys[list[i].key] = true;
+            toastAlarm(list[i]);                        // chỉ báo cáo phát sinh MỚI
+          }
         }
       }
       renderAlarms(); renderAlarmStats(); renderRecentAlarms();
@@ -1822,23 +2040,52 @@ function initFirebase() {
       state.settings = sanitizeSettings(v);
       ['fan_on','fan_off','pump_on','pump_off','max_timeouts'].forEach(function(k){ if ($(('set-'+k))) $('set-'+k).value = state.settings[k]; });
       renderDevices();
+
+      // HMI từ chối cấu hình → nó ghi đè lại /settings bằng bộ ngưỡng ĐANG CHẠY.
+      // Phát hiện ngay tại đây, hủy hẹn giờ "lưu thành công" phía saveSettings.
+      if (state.pendingSettings) {
+        var p = state.pendingSettings.vals, s = state.settings;
+        var same = p.fan_on === s.fan_on && p.fan_off === s.fan_off &&
+                   p.pump_on === s.pump_on && p.pump_off === s.pump_off;
+        if (!same) {
+          clearTimeout(state.pendingSettings.timer);
+          state.pendingSettings = null;
+          showToast('warning', 'HMI từ chối cấu hình',
+            'Đã khôi phục bộ ngưỡng đang chạy. Kiểm tra: OFF < ON từng cặp và Quạt phải khởi động trước Bơm.');
+        }
+      }
     });
 
     db.ref('control_ack').on('value', function(snap){
       var v = snap.val(); if (!v) return;
-      var seq = Number(v.command_sequence || 0);
+      var seq = num(v.command_sequence, 0);
       state.controlAck = v;
-      if (seq && seq >= state.lastAckSequence) {
-        state.lastAckSequence = seq;
-        setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
-        setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
-        if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');
-        else showToast('warning','HMI từ chối lệnh',v.message||'');
+
+      var isMine = !!(state.pendingCmd && seq === state.pendingCmd.seq);
+
+      // Snapshot ĐẦU TIÊN khi mở trang = ACK của phiên làm việc trước đó.
+      // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
+      if (!state.ackBaselineReady && !isMine) {
+        state.ackBaselineReady = true;
+        state.lastAckSequence = Math.max(state.lastAckSequence, seq);
+        return;
       }
+      state.ackBaselineReady = true;
+      if (seq > state.lastAckSequence) state.lastAckSequence = seq;
+
+      // Không phải ACK cho lệnh mình đang chờ (HMI tự thao tác / SEQ cũ / đã timeout).
+      if (!isMine) return;
+
+      clearCommandWatch();
+      applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 5s
+      setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
+      setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
+      if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');
+      else showToast('warning','HMI từ chối lệnh',v.message||'');
     });
 
   } catch (e) {
-    console.error('[Firebase] Init thất bại:', e);
+    console.error('[Firebase] startRealtime thất bại:', e);
     state.firebaseOk = false;
     setText('set-conn', 'OFFLINE');
     setTimeout(function(){ showToast('warning','⚠️ Firebase không khả dụng','Kiểm tra mạng và Firebase Rules.'); },1500);
@@ -1850,6 +2097,13 @@ function initFirebase() {
    ===================================================================== */
 initCharts();
 initFirebase();
+
+// Back/forward button của trình duyệt phải đổi view như bấm menu,
+// nếu không hash đổi nhưng sidebar vẫn hiện đúng menu cũ.
+window.addEventListener('hashchange', function() {
+  var v = (location.hash || '').replace('#', '');
+  if (ROUTES[v]) navigate(v);
+});
 
 // Filter listeners
 var filterIds = ['al-search', 'al-filter-type', 'al-filter-sev'];

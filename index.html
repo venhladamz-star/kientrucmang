@@ -479,7 +479,7 @@ tbody tr:last-child td{border-bottom:none}
           <div class="kpi-card">
             <div class="kpi-top">
               <div class="kpi-icon blue">🌀</div>
-              <span class="kpi-badge gray" id="kpi-fan-badge">CH1 · 0x0000</span>
+              <span class="kpi-badge gray" id="kpi-fan-badge">CH2 · 0x0001</span>
             </div>
             <div class="kpi-label">Quạt 12V</div>
             <div class="kpi-value off" id="kpi-fan-val">OFF</div>
@@ -489,7 +489,7 @@ tbody tr:last-child td{border-bottom:none}
           <div class="kpi-card">
             <div class="kpi-top">
               <div class="kpi-icon red">🚒</div>
-              <span class="kpi-badge gray" id="kpi-pump-badge">CH2 · 0x0001</span>
+              <span class="kpi-badge gray" id="kpi-pump-badge">CH1 · 0x0000</span>
             </div>
             <div class="kpi-label">Bơm dập lửa</div>
             <div class="kpi-value off" id="kpi-pump-val">OFF</div>
@@ -743,12 +743,12 @@ tbody tr:last-child td{border-bottom:none}
               <div class="device-icon-box">🔌</div>
               <div>
                 <div class="device-name">Relay Module</div>
-                <div class="device-id">Slave ID 02 · FC 0x05</div>
+                <div class="device-id">Slave ID FF (255) · FC 0x05</div>
               </div>
             </div>
             <div class="device-rows">
-              <div class="device-row"><span class="k">CH1 (Fan)</span><span class="v" id="dev-rly-ch1">OFF</span></div>
-              <div class="device-row"><span class="k">CH2 (Pump)</span><span class="v" id="dev-rly-ch2">OFF</span></div>
+              <div class="device-row"><span class="k">CH1 (Bơm + Còi)</span><span class="v" id="dev-rly-ch1">OFF</span></div>
+              <div class="device-row"><span class="k">CH2 (Quạt)</span><span class="v" id="dev-rly-ch2">OFF</span></div>
               <div class="device-row"><span class="k">Coil CH1</span><span class="v">0x0000</span></div>
               <div class="device-row"><span class="k">Coil CH2</span><span class="v">0x0001</span></div>
             </div>
@@ -775,7 +775,7 @@ tbody tr:last-child td{border-bottom:none}
               <div class="device-icon-box">🌀</div>
               <div>
                 <div class="device-name">Quạt tản nhiệt 12V</div>
-                <div class="device-id">Actuator · từ Relay CH1</div>
+                <div class="device-id">Actuator · từ Relay CH2</div>
               </div>
             </div>
             <div class="device-rows">
@@ -790,8 +790,8 @@ tbody tr:last-child td{border-bottom:none}
             <div class="device-head">
               <div class="device-icon-box" style="background:var(--danger-soft);color:var(--danger)">🚒</div>
               <div>
-                <div class="device-name">Bơm MB370</div>
-                <div class="device-id">Actuator · từ Relay CH2</div>
+                <div class="device-name">Bơm MB370 + Còi báo</div>
+                <div class="device-id">Actuator · từ Relay CH1</div>
               </div>
             </div>
             <div class="device-rows">
@@ -1252,12 +1252,12 @@ function renderDashboard() {
   setText('kpi-fan-val', fan ? 'ON' : 'OFF');
   setClass('kpi-fan-val', 'kpi-value ' + (fan ? 'blue' : 'off'));
   setStyle('kpi-fan-bar', 'width', fan ? '100%' : '0%');
-  setText('kpi-fan-badge', fan ? '● Đang quay' : 'CH1 · 0x0000');
+  setText('kpi-fan-badge', fan ? '● Đang quay' : 'CH2 · 0x0001');
 
   setText('kpi-pump-val', pump ? 'ON' : 'OFF');
   setClass('kpi-pump-val', 'kpi-value ' + (pump ? 'red' : 'off'));
   setStyle('kpi-pump-bar', 'width', pump ? '100%' : '0%');
-  setText('kpi-pump-badge', pump ? '🔥 Đang phun' : 'CH2 · 0x0001');
+  setText('kpi-pump-badge', pump ? '🔥 Đang phun' : 'CH1 · 0x0000');
 
   var age = state.lastUpdate ? (Date.now() - state.lastUpdate)/1000 : 999;
   var rs485Ok = state.current.comm_ok !== false && age < 15;
@@ -1288,8 +1288,8 @@ function renderAssets() {
   var items = [
     { name: 'Nhiệt độ (SHT20)', val: c.t.toFixed(1) + ' °C', pct: Math.min(100, (c.t/60)*100), cls: c.t>=50?'danger':c.t>=32?'warning':'green' },
     { name: 'Độ ẩm (SHT20)', val: c.h.toFixed(1) + ' %', pct: Math.min(100, c.h), cls: '' },
-    { name: 'Quạt 12V (CH1)', val: c.fan ? 'Đang chạy' : 'Dừng', pct: c.fan ? 100 : 5, cls: c.fan?'green':'' },
-    { name: 'Bơm MB370 (CH2)', val: c.pump ? 'Đang phun' : 'Dừng', pct: c.pump ? 100 : 5, cls: c.pump?'danger':'' }
+    { name: 'Quạt 12V (CH2)', val: c.fan ? 'Đang chạy' : 'Dừng', pct: c.fan ? 100 : 5, cls: c.fan?'green':'' },
+    { name: 'Bơm MB370 (CH1)', val: c.pump ? 'Đang phun' : 'Dừng', pct: c.pump ? 100 : 5, cls: c.pump?'danger':'' }
   ];
   var html = '';
   for (var i = 0; i < items.length; i++) {
@@ -1362,11 +1362,19 @@ function renderDevices() {
   if (c.t === null) return;
   setText('dev-sht-t', c.t.toFixed(1) + ' °C');
   setText('dev-sht-h', c.h.toFixed(1) + ' %');
-  setText('dev-rly-ch1', c.fan ? 'ON' : 'OFF');
-  setText('dev-rly-ch2', c.pump ? 'ON' : 'OFF');
+  // CH1 = bơm + còi, CH2 = quạt (khớp Config.COIL_CH1 / COIL_CH2 phía HMI).
+  setText('dev-rly-ch1', c.pump ? 'ON' : 'OFF');
+  setText('dev-rly-ch2', c.fan ? 'ON' : 'OFF');
   setText('dev-fan-status', c.fan ? 'Đang quay' : 'Đứng yên');
   setText('dev-pump-status', c.pump ? 'Đang phun' : 'Đứng yên');
   setText('dev-cloud-status', state.firebaseOk ? 'Online' : 'Offline');
+  // Ngưỡng ĐANG CHẠY lấy từ /settings — 4 ô này trước đây chỉ giữ giá trị hardcode
+  // trong HTML, trong khi HMI chạy bộ ngưỡng khác (ví dụ 30/25 thay vì 32/30).
+  var s = state.settings || {};
+  setText('dev-fan-on',   'T ≥ ' + num(s.fan_on,  32).toFixed(1) + '°C');
+  setText('dev-fan-off',  'T ≤ ' + num(s.fan_off, 30).toFixed(1) + '°C');
+  setText('dev-pump-on',  'T ≥ ' + num(s.pump_on,  50).toFixed(1) + '°C');
+  setText('dev-pump-off', 'T ≤ ' + num(s.pump_off, 42).toFixed(1) + '°C');
 }
 
 /* =====================================================================
@@ -2038,7 +2046,14 @@ function startRealtime() {
     db.ref('settings').on('value', function(snap){
       var v = snap.val(); if (!v) return;
       state.settings = sanitizeSettings(v);
-      ['fan_on','fan_off','pump_on','pump_off','max_timeouts'].forEach(function(k){ if ($(('set-'+k))) $('set-'+k).value = state.settings[k]; });
+      // ID trong HTML dùng GẠCH NGANG (set-fan-on) còn khóa DB dùng GẠCH DƯỚI (fan_on),
+      // riêng max_timeouts nằm ở ô 'set-timeouts'. Dòng cũ nối chuỗi 'set-' + k
+      // → ra set-fan_on → getElementById luôn null → form KHÔNG BAO GIỜ nạp từ Firebase.
+      [['fan_on','set-fan-on'], ['fan_off','set-fan-off'],
+       ['pump_on','set-pump-on'], ['pump_off','set-pump-off'],
+       ['max_timeouts','set-timeouts']].forEach(function(p){
+        if ($(p[1])) $(p[1]).value = state.settings[p[0]];
+      });
       renderDevices();
 
       // HMI từ chối cấu hình → nó ghi đè lại /settings bằng bộ ngưỡng ĐANG CHẠY.

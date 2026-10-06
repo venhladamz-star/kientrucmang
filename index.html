@@ -60,7 +60,7 @@ body[data-device="phone"] .topbar{padding:0 16px;gap:8px}
 
 
 /* ==================== APP LAYOUT ==================== */
-#app{display:none;height:100vh;height:100dvh;width:100%}
+#app{display:none;height:100vh;width:100%}
 #app.ready{display:flex}
 body[data-device="phone"] .content{padding:18px 14px 28px}
 body[data-device="phone"] .page-header h1{font-size:23px}
@@ -72,7 +72,7 @@ body[data-device="phone"] .stat-grid{grid-template-columns:1fr 1fr}
 body[data-device="phone"] .device-grid{grid-template-columns:1fr}
 body[data-device="phone"] .search-box{display:none}
 @media(max-width:430px){body[data-device="phone"] .kpi-grid{grid-template-columns:1fr 1fr} body[data-device="phone"] .kpi-card{padding:12px} body[data-device="phone"] .kpi-value{font-size:19px}}
-.sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;height:100dvh;transition:transform .25s;z-index:100}
+.sidebar{width:var(--sidebar-w);flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;transition:transform .25s;z-index:100}
 .sidebar-brand{padding:22px 24px 26px;display:flex;align-items:center;gap:12px}
 .sidebar-logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--primary),#3b82f6);display:grid;place-items:center;color:#fff;font-size:20px;box-shadow:0 4px 12px rgba(37,99,235,.3);flex-shrink:0}
 .sidebar-brand h1{font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.3px;line-height:1.1}
@@ -431,7 +431,7 @@ tbody tr:last-child td{border-bottom:none}
           <span id="topbar-conn-text">Đang kết nối</span>
         </div>
 
-        <button class="icon-btn" title="Thông báo" onclick="navigate('alarms')">
+        <button class="icon-btn" title="Thông báo" onclick="markAlarmsRead(); navigate('alarms')">
           🔔
           <span class="dot-badge" id="bell-dot" style="display:none"></span>
         </button>
@@ -658,7 +658,7 @@ tbody tr:last-child td{border-bottom:none}
           <div class="stat-block">
             <div class="stat-label" style="color:var(--danger-dark)">Cháy (FIRE)</div>
             <div class="stat-value" style="color:var(--danger)" id="al-fire">0</div>
-            <div class="stat-sub" id="al-fire-sub">Nhiệt độ ≥ 50.0°C</div>
+            <div class="stat-sub" id="al-fire-sub"></div>
           </div>
           <div class="stat-block">
             <div class="stat-label" style="color:#92400e">Mất kết nối</div>
@@ -685,9 +685,9 @@ tbody tr:last-child td{border-bottom:none}
               <option value="">Tất cả loại</option>
               <option value="FIRE">🔥 Cháy</option>
               <option value="COMM_LOSS">📡 Mất kết nối</option>
-              <option value="EMERGENCY">⛔ Khẩn cấp (E-STOP)</option>
-              <option value="FAN_ACTUATOR_FAIL">⚙️ Lỗi quạt</option>
-              <option value="PUMP_ACTUATOR_FAIL">⚙️ Lỗi bơm</option>
+              <option value="EMERGENCY">🛑 Khẩn cấp (E-STOP)</option>
+              <option value="FAN_ACTUATOR_FAIL">🌀 Lỗi cơ cấu quạt</option>
+              <option value="PUMP_ACTUATOR_FAIL">💧 Lỗi cơ cấu bơm</option>
             </select>
             <select class="select" id="al-filter-sev">
               <option value="">Tất cả mức độ</option>
@@ -959,7 +959,6 @@ tbody tr:last-child td{border-bottom:none}
 <!-- Firebase Compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 
 <script>
 /* =====================================================================
@@ -975,29 +974,6 @@ function parseTs(ts) {
   if (!ts) return new Date();
   var d = new Date(ts);
   return isNaN(d.getTime()) ? new Date() : d;
-}
-/* Thời điểm của một alarm (ms). Alarm thiếu/sai timestamp trả về 0, KHÔNG phải
-   "bây giờ" như parseTs — nếu trả new Date() thì badge "chưa đọc" và chấm 🔔
-   sẽ không bao giờ tắt (mọi lần đếm đều coi alarm đó vừa mới xảy ra). */
-function alarmTs(a) {
-  if (!a || !a.timestamp) return 0;
-  var d = new Date(a.timestamp);
-  return isNaN(d.getTime()) ? 0 : d.getTime();
-}
-
-/* Mức cảnh báo theo loại sự kiện.
-   Trước đây chỉ FIRE→CRITICAL và COMM_LOSS→HIGH, mọi thứ còn lại (EMERGENCY,
-   PUMP_ACTUATOR_FAIL…) rơi vào INFO → E-STOP chỉ hiện toast xanh + 1 tiếng bíp
-   nhẹ và không lọc được theo mức. */
-function alarmSeverity(type) {
-  switch (String(type || '')) {
-    case 'FIRE':             return 'CRITICAL';
-    case 'EMERGENCY':        return 'CRITICAL';
-    case 'PUMP_ACTUATOR_FAIL': return 'HIGH';   // bơm không đóng được → ảnh hưởng dập lửa
-    case 'FAN_ACTUATOR_FAIL':  return 'HIGH';
-    case 'COMM_LOSS':        return 'HIGH';
-    default:                 return 'INFO';
-  }
 }
 function timeAgo(d) {
   var s = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -1038,6 +1014,7 @@ var state = {
   alarms: [],
   seenKeys: {},
   lastUpdate: null,
+  lastHeartbeat: 0,            // M1: heartbeat HMI lần cuối nhận được (đổi → reset age)
   startTime: Date.now(),
   soundEnabled: false,
   firebaseOk: false,
@@ -1050,7 +1027,8 @@ var state = {
   lastAckSequence: 0,
   lastSeenAlarmTs: 0,
   hasAlarmReadBaseline: false,
-  pendingCmd: null,             // {seq, timer} — theo dõi ACK cho lệnh đang bay
+  pendingCmd: null,             // {seq, timer, prev, estop} — theo dõi ACK cho lệnh đang bay
+  estopUnacked: false,          // H2: E-STOP đã gửi nhưng CHƯA nhận ACK → chặn Clear
   pendingSettings: null,        // {vals, timer} — vừa lưu /settings, chờ xác nhận
   activeToastKeys: {}
 };
@@ -1250,24 +1228,24 @@ function renderDashboard() {
   // Panel điều khiển cần được cập nhật NGAY cả khi chưa có số liệu cảm biến,
   // nếu không các nút (E-STOP / AUTO / MANUAL) sẽ giữ trạng thái enabled sai.
   renderControlPanel();
-  // Khối "System Health" KHÔNG phụ thuộc số liệu cảm biến nên phải cập nhật
-  // TRƯỚC guard t/h — nếu không LED Firebase giữ sẵn màu xanh tĩnh trong HTML
-  // (class "status-led on") ngay cả khi offline/chưa có dữ liệu, và LED
-  // failsafe / RS-485 / chế độ không bao giờ được vẽ lại.
+  // E3: khối LED System Health phải nằm TRƯỚC guard t/h — các LED này không
+  // phụ thuộc số liệu cảm biến; đặt SAU guard thì chúng giữ màu xanh tĩnh
+  // trong HTML cả khi offline / chưa có dữ liệu.
   var age = state.lastUpdate ? (Date.now() - state.lastUpdate)/1000 : 999;
-  var rs485Ok = c.comm_ok !== false && age < 15;
+  var rs485Ok = state.current.comm_ok !== false && age < 15;
   setClass('st-rs485', 'status-led ' + (rs485Ok ? 'on' : 'err'));
   setText('st-rs485-val', rs485Ok ? 'OK' : 'Timeout');
 
   setClass('st-cloud', 'status-led ' + (state.firebaseOk ? 'on' : 'warn'));
   setText('st-cloud-val', state.firebaseOk ? 'Trực tuyến' : 'Đang chờ');
 
-  var failsafe = !!c.failsafe;
+  var failsafe = !!state.current.failsafe;
   setClass('st-failsafe', 'status-led ' + (failsafe ? 'err' : 'off'));
   setText('st-failsafe-val', failsafe ? 'ACTIVE' : 'Bình thường');
 
-  setClass('st-mode', 'status-led ' + (c.mode === 'AUTO' ? 'on' : 'warn'));
-  setText('st-mode-val', c.mode);
+  var mode = c.mode;
+  setClass('st-mode', 'status-led ' + (mode === 'AUTO' ? 'on' : 'warn'));
+  setText('st-mode-val', mode);
 
   // LƯU Ý: isFinite(null) === true (null → 0) nên PHẢI kiểm tra typeof,
   // nếu không sẽ lao vào t.toFixed(1) trên null khi Firebase chưa có dữ liệu.
@@ -1275,21 +1253,18 @@ function renderDashboard() {
   if (typeof c.h !== 'number' || !isFinite(c.h)) return;
 
   var t = c.t, h = c.h, fan = c.fan, pump = c.pump;
+  var th = state.settings || {};   // N6: ngưỡng ĐANG CHẠY từ /settings
 
   setHTML('kpi-t-val', t.toFixed(1) + '<span class="kpi-unit">°C</span>');
-  // Ngưỡng lấy TỪ /settings (HMI là nguồn duy nhất). Trước đây hardcode 50/32 →
-  // đổi ngưỡng trong Settings thì màu KPI và badge vẫn theo giá trị cũ.
-  var th = state.settings || {};
-  var thPumpOn = num(th.pump_on, 50), thFanOn = num(th.fan_on, 32);
-  var tClass = t >= thPumpOn ? 'red' : t >= thFanOn ? 'orange' : 'green';
+  var tClass = t >= th.pump_on ? 'red' : t >= th.fan_on ? 'orange' : 'green';
   setClass('kpi-t-val', 'kpi-value ' + tClass);
   setClass('kpi-t-bar', 'kpi-bar-fill ' + tClass);
   setStyle('kpi-t-bar', 'width', Math.min(100, (t/60)*100) + '%');
 
   var tBadge = $('kpi-t-badge');
   if (tBadge) {
-    if (t >= thPumpOn) { tBadge.className = 'kpi-badge down'; tBadge.textContent = '⚠ Quá nhiệt'; }
-    else if (t >= thFanOn) { tBadge.className = 'kpi-badge neutral'; tBadge.textContent = '▲ Cao'; }
+    if (t >= th.pump_on) { tBadge.className = 'kpi-badge down'; tBadge.textContent = '⚠ Quá nhiệt'; }
+    else if (t >= th.fan_on) { tBadge.className = 'kpi-badge neutral'; tBadge.textContent = '▲ Cao'; }
     else { tBadge.className = 'kpi-badge up'; tBadge.textContent = '✓ Bình thường'; }
   }
 
@@ -1318,15 +1293,10 @@ function renderAssets() {
   if (!el) return;
   var c = state.current;
   if (c.t === null) return;
-  // Ngưỡng lấy từ /settings đang chạy (mặc định 50/32) — đổi ngưỡng trong Form
-  // là thanh nhiệt độ và màu cảnh báo đổi theo, không phải sửa code.
-  var th = state.settings || {};
-  var hot  = num(th.pump_on, 50);
-  var warm = num(th.fan_on, 32);
+  var th = state.settings || {};   // N6: ngưỡng ĐANG CHẠY từ /settings
   var items = [
-    { name: 'Nhiệt độ (SHT20)', val: c.t.toFixed(1) + ' °C',
-      pct: Math.min(100, (c.t / (hot + 10)) * 100),
-      cls: c.t >= hot ? 'danger' : c.t >= warm ? 'warning' : 'green' },
+    { name: 'Nhiệt độ (SHT20)', val: c.t.toFixed(1) + ' °C', pct: Math.min(100, (c.t/60)*100),
+      cls: c.t >= th.pump_on ? 'danger' : c.t >= th.fan_on ? 'warning' : 'green' },
     { name: 'Độ ẩm (SHT20)', val: c.h.toFixed(1) + ' %', pct: Math.min(100, c.h), cls: '' },
     { name: 'Quạt 12V (CH2)', val: c.fan ? 'Đang chạy' : 'Dừng', pct: c.fan ? 100 : 5, cls: c.fan?'green':'' },
     { name: 'Bơm MB370 (CH1)', val: c.pump ? 'Đang phun' : 'Dừng', pct: c.pump ? 100 : 5, cls: c.pump?'danger':'' }
@@ -1399,10 +1369,6 @@ function renderMonitoring() {
    ===================================================================== */
 function renderDevices() {
   var c = state.current;
-  // Guard PHẢI kiểm tra cả t lẫn h bằng typeof (không phải === null): dữ liệu
-  // đến từ Firebase nên không tin được kiểu — trước đây chỉ chặn c.t, nên khi
-  // c.h là null thì c.h.toFixed(1) ném TypeError NGAY GIỮA writeControl và
-  // nuốt mất lệnh, kể cả E-STOP (set() xuống /control không bao giờ chạy).
   if (typeof c.t !== 'number' || !isFinite(c.t)) return;
   if (typeof c.h !== 'number' || !isFinite(c.h)) return;
   setText('dev-sht-t', c.t.toFixed(1) + ' °C');
@@ -1458,25 +1424,48 @@ function renderAlarms() {
   tbody.innerHTML = html;
 }
 
+/* BUG10: mức độ theo MÃ alarm HMI sinh ra — ternary cũ (FIRE/COMM_LOSS/INFO)
+   đẩy EMERGENCY lẫn PUMP_ACTUATOR_FAIL xuống INFO. */
+function alarmSeverity(type) {
+  switch (type) {
+    case 'FIRE': return 'CRITICAL';
+    case 'EMERGENCY': return 'CRITICAL';
+    case 'COMM_LOSS': return 'HIGH';
+    case 'FAN_ACTUATOR_FAIL': return 'HIGH';
+    case 'PUMP_ACTUATOR_FAIL': return 'HIGH';
+    default: return 'INFO';
+  }
+}
+
+/* E6: timestamp của alarm — THIẾU/lệch → 0. parseTs() trả new Date() khi
+   thiếu timestamp → badge "chưa đọc" và chấm 🔔 không bao giờ tắt (mọi lần
+   đếm đều là "vừa mới thấy"). */
+function alarmTs(a) {
+  var ts = a ? a.timestamp : null;
+  if (ts == null || ts === '') return 0;
+  var t = parseTs(ts).getTime();
+  return isFinite(t) ? t : 0;
+}
+
 function renderAlarmStats() {
   var total = state.alarms.length;
   var fire = state.alarms.filter(function(a){ return a.type === 'FIRE'; }).length;
   var comm = state.alarms.filter(function(a){ return a.type === 'COMM_LOSS'; }).length;
   var now = Date.now();
-  var d24 = state.alarms.filter(function(a){ return (now - alarmTs(a)) < 86400000; }).length;
+  var d24 = state.alarms.filter(function(a){ var ts = alarmTs(a); return ts > 0 && (now - ts) < 86400000; }).length;
 
   setText('al-total', total);
   setText('al-fire', fire);
-  // Ngưỡng báo CHÁY lấy từ /settings — trước đây ghi cứng "≥ 50°C" trong HTML.
-  setText('al-fire-sub', 'Nhiệt độ ≥ ' + num((state.settings || {}).pump_on, 50).toFixed(1) + '°C');
   setText('al-comm', comm);
   setText('al-24h', d24);
+  // N6: nhãn theo ngưỡng BÁO CHÁY ĐANG CHẠY (không còn "≥ 50°C" cứng).
+  setText('al-fire-sub', 'Nhiệt độ ≥ ' + (state.settings || {}).pump_on + '°C');
 
   var badge = $('nav-alarm-badge');
   var seenTs = Number(state.lastSeenAlarmTs || 0);
   var unread = 0;
   for (var k = 0; k < state.alarms.length; k++) {
-    if (alarmTs(state.alarms[k]) > seenTs) unread++;
+    if (parseTs(state.alarms[k].timestamp).getTime() > seenTs) unread++;
   }
   if (badge) badge.textContent = unread > 0 ? String(unread) : '';
   var bell = $('bell-dot');
@@ -1601,8 +1590,8 @@ window.enableSound = function() {
 };
 
 window.testSound = function() {
-  // PHẢI phát tiếng ngay cả lần đầu: trước đây chỉ enableSound() rồi return →
-  // người bấm "Test" không hề nghe gì và tưởng loa lỗi.
+  // E7: lần đầu cũng PHẢI phát thử ngay (click đã là user gesture) —
+  // return sau enableSound() khiến nút Test im lặng, người dùng tưởng hỏng.
   if (!state.soundEnabled) enableSound();
   playBeep('CRITICAL');
 };
@@ -1688,27 +1677,21 @@ var FIREBASE_CONFIG = {
   apiKey: "AIzaSyDxqB-Dcr6oBlAjn-16dT6gccFALLZnNOA",
   databaseURL: "https://pumpwatersys-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
-/* Web KHÔNG đăng nhập — mở link là vào, không cần email/mật khẩu.
-   Do đó Rules RTDB phải để OPEN:  ".read": true, ".write": true  (xem README).
-   Hệ quả phải chấp nhận: ai có URL đều đọc/ghi được /control. */
 
 setText('set-url', FIREBASE_CONFIG.databaseURL.split('//')[1]);
 
 function commandSequence() {
-  try {
-    var old = Number(localStorage.getItem('pumpvision_cmd_seq') || 0);
-    var now = Date.now();
-    var rnd = 0;
-    if (window.crypto && window.crypto.getRandomValues) {
-      var a = new Uint32Array(1); window.crypto.getRandomValues(a); rnd = a[0] % 1000000;
-    } else { rnd = Math.floor(Math.random() * 1000000); }
-    var seq = Math.max(old + 1, now * 1000000 + rnd);
-    localStorage.setItem('pumpvision_cmd_seq', String(seq));
-    return seq;
-  } catch(e) {
-    window.__cmdSeqFallback = Math.max(window.__cmdSeqFallback || 0, Date.now() * 1000000) + 1;
-    return window.__cmdSeqFallback;
-  }
+  // C2: seq kiểu MILLISECONDS (~1.7e12) — an toàn với double (max 9e15).
+  // Bản cũ nhân Date.now() với 1e6 (~1.7e18) vượt MAX_SAFE_INTEGER:
+  // old+1 === old → mất đơn điệu, hai lệnh cùng ms ra seq trùng.
+  var old = 0;
+  try { old = Number(localStorage.getItem('pumpvision_cmd_seq') || 0); } catch (e) {}
+  old = Math.max(old, window.__cmdSeqMem || 0);
+  if (!(old < 1e15)) old = 0;                 // bỏ seq cũ ~1e18 còn trong localStorage
+  var seq = Math.max(old + 1, Date.now());    // ~1.7e12, an toàn
+  window.__cmdSeqMem = seq;
+  try { localStorage.setItem('pumpvision_cmd_seq', String(seq)); } catch (e) {}
+  return seq;
 }
 
 function renderControlPanel() {
@@ -1749,31 +1732,10 @@ function applyLocalState(p) {
   if (p.mode_cmd) state.current.mode = p.mode_cmd;
   state.current.fan = !!p.fan_cmd;
   state.current.pump = !!p.pump_cmd;
-  if (p.emergency_cmd) state.current.emergency_lock = true;
-  else if (p.clear_emergency) state.current.emergency_lock = false;
-  // Render là việc HIỂN THỊ — không bao giờ được ném exception ra đường ra
-  // lệnh: applyLocalState chạy TRƯỚC state.db.ref('control').set() trong
-  // writeControl, nên một lỗi render sẽ nuốt mất lệnh một cách im lặng.
-  try { renderDashboard(); renderDevices(); } catch (e) { console.error('[render]', e); }
-}
-
-/* BẢN SAO trạng thái TRƯỚC khi áp Optimistic Update — dùng để HOÀN TÁC nếu lệnh
-   không bao giờ tới HMI (set() lỗi, hoặc hết 12s không nhận được ACK). Không có
-   bước này thì giao diện sẽ hiện "E-STOP LOCKED" / quạt OFF mãi, trong khi HMI
-   chưa hề nhận lệnh — và chính state đó lại bị đọc làm mặc định cho lệnh sau. */
-function snapshotLocalState() {
-  var c = state.current;
-  return { mode: c.mode, fan: c.fan, pump: c.pump, emergency_lock: c.emergency_lock };
-}
-
-function restoreLocalState(prev) {
-  if (!prev) return;
-  var c = state.current;
-  if (prev.mode) c.mode = prev.mode;
-  if (typeof prev.fan === 'boolean') c.fan = prev.fan;
-  if (typeof prev.pump === 'boolean') c.pump = prev.pump;
-  if (typeof prev.emergency_lock === 'boolean') c.emergency_lock = prev.emergency_lock;
-  renderDashboard(); renderDevices();
+  // M3: KHÔNG bật khóa ở đây — chỉ applyAckState (sau ACK thật) hoặc
+  // system_status mới đặt trạng thái khóa; nút Clear không bấm được sớm.
+  // E2: render là việc HIỂN THỊ — không được ném lỗi ra đường ra lệnh.
+  try { renderDashboard(); renderDevices(); } catch (e) { console.error('[UI] render:', e); }
 }
 
 /* Ép trạng thái HMI trả về trong ACK — nguồn dữ liệu xác thực. */
@@ -1786,33 +1748,68 @@ function applyAckState(v) {
   renderDashboard(); renderDevices();
 }
 
+/* Optimistic UI PHẢI có bản sao để hoàn tác khi lệnh KHÔNG tới HMI
+   (set() lỗi / timeout ACK) — web không được "tự chém" trạng thái. */
+function snapshotLocalState() {
+  var c = state.current;
+  return { mode: c.mode, fan: c.fan, pump: c.pump, emergency_lock: c.emergency_lock };
+}
+
+function restoreLocalState(s) {
+  if (!s) return;
+  var c = state.current;
+  c.mode = s.mode; c.fan = s.fan; c.pump = s.pump;
+  c.emergency_lock = s.emergency_lock;
+  renderDashboard(); renderDevices();
+}
+
 function clearCommandWatch() {
   if (state.pendingCmd && state.pendingCmd.timer) clearTimeout(state.pendingCmd.timer);
   state.pendingCmd = null;
 }
 
-function watchAck(seq, prev) {
+function watchAck(seq, prev, estop) {
   clearCommandWatch();
-  state.pendingCmd = { seq: seq, timer: null, prev: prev || null };
+  state.pendingCmd = { seq: seq, timer: null, prev: prev || null, estop: !!estop };
 }
 
 function startAckTimeout(seq) {
   if (!state.pendingCmd || state.pendingCmd.seq !== seq) return;
   state.pendingCmd.timer = setTimeout(function() {
     if (!state.pendingCmd || state.pendingCmd.seq !== seq) return;
-    var prev = state.pendingCmd.prev;
+    var wasEstop = !!state.pendingCmd.estop;
+    var prev = state.pendingCmd.prev;          // bản sao TRƯỚC optimistic update
     state.pendingCmd = null;
-    restoreLocalState(prev);      // Hồi lại trạng thái THẬT — lệnh chưa tới HMI
-    setStatus('Không có phản hồi');
-    showToast('warning', 'HMI chưa ACK',
-      'Không nhận được xác nhận trong ' + (ACK_TIMEOUT_MS / 1000) +
-      's — giao diện đã HOÀN TÁC về trạng thái trước đó. Kiểm tra HMI Python có đang chạy và có kết nối Firebase không.');
+    restoreLocalState(prev);                   // lệnh KHÔNG tới HMI → hoàn tác
+    if (wasEstop) {
+      // H2: E-STOP không có ACK = KHÔNG chắc đã kích hoạt — báo rõ và
+      // chặn Clear cho tới khi có ACK hoặc system_status xác nhận khóa.
+      state.estopUnacked = true;
+      setStatus('E-STOP CHƯA XÁC NHẬN');
+      showToast('critical', 'E-STOP chưa xác nhận',
+        'Không nhận được ACK trong ' + (ACK_TIMEOUT_MS / 1000) +
+        's — CHƯA chắc E-STOP đã kích hoạt. Gửi lại E-STOP hoặc chờ HMI xác nhận.');
+      renderDashboard();
+    } else {
+      setStatus('Không có phản hồi');
+      showToast('warning', 'HMI chưa ACK',
+        'Không nhận được xác nhận trong ' + (ACK_TIMEOUT_MS / 1000) +
+        's. Kiểm tra HMI Python có đang chạy và có kết nối Firebase không.');
+    }
   }, ACK_TIMEOUT_MS);
 }
 
-function writeControl(fields) {
-  if (!state.db) {
-    showToast('warning', 'Firebase chưa sẵn sàng', 'Không thể gửi lệnh xuống HMI.');
+function writeControl(fields, opts) {
+  opts = opts || {};
+  // N4: offline thì TUYỆT ĐỐI không báo như đã gửi (kể cả E-STOP).
+  if (!state.db || !state.firebaseOk) {
+    showToast('critical', 'Đang offline', 'Lệnh CHƯA được gửi tới HMI.');
+    setStatus('Offline · lệnh CHƯA gửi');
+    return false;
+  }
+  // H2: chỉ một lệnh được chờ ACK — E-STOP (urgent) luôn được phép đi trước.
+  if (state.pendingCmd && !opts.urgent) {
+    showToast('warning', 'Đang chờ ACK', 'Chờ HMI xác nhận lệnh trước.');
     return false;
   }
   var c = state.current;
@@ -1828,22 +1825,20 @@ function writeControl(fields) {
     issued_by: 'ERP-WEB'
   };
 
-  var prevSnap = snapshotLocalState();   // bản sao TRƯỚC optimistic update
-  applyLocalState(payload);          // phản hồi UI tức thì + đúng cho lệnh kế tiếp
-  watchAck(payload.command_sequence, prevSnap); // bắt đầu theo dõi ACK TRƯỚC khi set()
-  // Đặt timer NGAY (không đợi .then()) — nếu promise không bao giờ settle thì
-  // UI vẫn được hoàn tác sau ACK_TIMEOUT_MS thay vì kẹt optimistic vô hạn.
-  startAckTimeout(payload.command_sequence);
-  setStatus('Đang gửi…');
+  // Optimistic UI CÓ bản sao để hoàn tác nếu lệnh không tới HMI (BUG3);
+  // trạng thái khóa chỉ do applyAckState/system_status quyết định (M3).
+  var prevSnap = snapshotLocalState();
+  applyLocalState(payload);
+  watchAck(payload.command_sequence, prevSnap, payload.emergency_cmd);
+  startAckTimeout(payload.command_sequence);   // H2: chạy NGAY, không đợi .then
+  setStatus('Đang gửi…  (chờ ACK)');
 
   state.db.ref('control').set(payload).then(function() {
     setStatus('Đã gửi · chờ ACK');
   }).catch(function(err) {
     setStatus('Lỗi gửi');
-    if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) {
-      clearCommandWatch();
-      restoreLocalState(prevSnap);      // gửi thất bại → UI phải về trạng thái thật
-    }
+    restoreLocalState(prevSnap);
+    if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) clearCommandWatch();
     showToast('critical', 'Không gửi được lệnh', err && err.message ? err.message : String(err));
   });
   return true;
@@ -1872,39 +1867,58 @@ window.toggleRemote = function(kind) {
   }
 };
 window.sendEmergency = function(on) {
-  writeControl({mode_cmd:'MANUAL', emergency_cmd: !!on, fan_cmd:false, pump_cmd:false});
+  // H2: E-STOP luôn đi trước (urgent) — không bị chặn bởi lệnh đang chờ ACK.
+  writeControl({mode_cmd:'MANUAL', emergency_cmd: !!on, fan_cmd:false, pump_cmd:false},
+               {urgent: true});
 };
 window.clearEmergency = function() {
+  // H2: E-STOP chưa xác nhận (timeout, không rõ đã kích hoạt) → chặn Clear
+  // cho tới khi có ACK hoặc system_status xác nhận khóa đã chốt.
+  if (state.estopUnacked && !state.current.emergency_lock) {
+    showToast('warning', 'E-STOP CHƯA XÁC NHẬN',
+      'Chưa rõ E-STOP đã kích hoạt — gửi lại E-STOP hoặc chờ HMI xác nhận trước khi giải phóng.');
+    return;
+  }
   writeControl({mode_cmd:'MANUAL', clear_emergency:true, fan_cmd: state.current.fan, pump_cmd:false});
 };
+
+// N6: đọc số an toàn — ô TRỐNG → NaN (Number('') === 0 từng bị coi là 0°C
+// hợp lệ) và chặn miền -40..125°C giống ControlEngine.update_settings().
+var T_MIN = -40, T_MAX = 125;
+function readNum(id) {
+  var el = $(id);
+  var s = el ? String(el.value).trim() : '';
+  return s === '' ? NaN : Number(s);
+}
+function inRange(v) { return Number.isFinite(v) && v >= T_MIN && v <= T_MAX; }
 
 window.saveSettings = function() {
   if (!state.db) { showToast('warning','Firebase chưa sẵn sàng','Không thể lưu cấu hình.'); return; }
   var vals = {
-    fan_on: Number($('set-fan-on').value),
-    fan_off: Number($('set-fan-off').value),
-    pump_on: Number($('set-pump-on').value),
-    pump_off: Number($('set-pump-off').value),
-    max_timeouts: Number($('set-timeouts').value)
+    fan_on: readNum('set-fan-on'),
+    fan_off: readNum('set-fan-off'),
+    pump_on: readNum('set-pump-on'),
+    pump_off: readNum('set-pump-off'),
+    max_timeouts: readNum('set-timeouts')
   };
-  if (!(Number.isFinite(vals.fan_on) && Number.isFinite(vals.fan_off) && Number.isFinite(vals.pump_on) && Number.isFinite(vals.pump_off) &&
+  if (!(inRange(vals.fan_on) && inRange(vals.fan_off) && inRange(vals.pump_on) && inRange(vals.pump_off) &&
         vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
         // Khớp với ControlEngine.update_settings(): quạt phải làm mát TRƯỚC
         // khi bơm báo cháy, nếu không hệ thống sẽ xịt nước trước cả khi làm mát.
         vals.fan_on <= vals.pump_on && vals.fan_off <= vals.pump_off &&
         Number.isInteger(vals.max_timeouts) && vals.max_timeouts === 1)) {
-    showToast('warning','Cấu hình không hợp lệ','OFF phải thấp hơn ON, QUẠT phải ≤ BƠM; failsafe được khóa ở đúng 1 chu kỳ.');
+    showToast('warning','Cấu hình không hợp lệ','OFF < ON từng cặp, quạt ≤ bơm, ngưỡng trong -40..125°C; failsafe khóa ở đúng 1 chu kỳ.');
     return;
   }
   if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
   state.pendingSettings = {
     vals: vals,
-    // Nếu HMI từ chối, listener /settings sẽ ghi đè lại và báo NGAY (xem dưới).
-    // Còn lại: sau 4s không bị ghi đè → coi như HMI đã nhận.
+    // M4: KHÔNG còn timer 4s tự báo "Đã lưu" — chỉ /settings_ack xác nhận
+    // HMI THẬT SỰ áp dụng mới báo thành công; quá 10s → báo HMI chưa xác nhận.
     timer: setTimeout(function(){
       state.pendingSettings = null;
-      showToast('success','Đã lưu cấu hình','Thông số đã đồng bộ sang HMI.');
-    }, 4000)
+      showToast('warning','HMI chưa xác nhận cấu hình','Chưa nhận /settings_ack sau 10s — HMI có thể offline.');
+    }, 10000)
   };
   showToast('info','Đang đồng bộ cấu hình','Chờ HMI xác nhận…');
   state.db.ref('settings').set(vals).catch(function(err){
@@ -1978,6 +1992,8 @@ function initFirebase() {
     setTimeout(function(){ showToast('warning','⚠️ Firebase không khả dụng','Kiểm tra mạng và Firebase Rules.'); },1500);
     return;
   }
+  // N8/M2: Rules đã mở (.read/.write: true) — Web KHÔNG đăng nhập,
+  // mở link là vào; startRealtime chạy trực tiếp sau khi init SDK thành công.
   startRealtime();
 }
 
@@ -2012,7 +2028,15 @@ function startRealtime() {
         last_command_sequence: num(v.last_command_sequence, 0),
         last_command_result: String(v.last_command_result || '')
       };
-      state.lastUpdate = v.timestamp ? parseTs(v.timestamp).getTime() : Date.now();
+      // H2: system_status xác nhận E-STOP đã CHỐT thật → bỏ cờ chưa xác nhận.
+      if (state.estopUnacked && v.emergency_lock === true) state.estopUnacked = false;
+      // M1: age tính từ thời điểm MÁY NÀY nhận được heartbeat MỚI — không so
+      // timestamp của HMI với đồng hồ trình duyệt nữa (lệch giờ → LED báo sai).
+      var hb = num(v.heartbeat, 0);
+      if (hb !== state.lastHeartbeat) {
+        state.lastHeartbeat = hb;
+        state.lastUpdate = Date.now();
+      }
       if (!state.historySourceReady) {
         // Điểm tạm thời CHƯA có key — sẽ bị loại bỏ ngay khi listener
         // /history (child_added) của chính nó bắt đầu nhận dữ liệu.
@@ -2043,17 +2067,11 @@ function startRealtime() {
       }
       insertHistory(historyEntry(snap.key, snap.val() || {}));
       scheduleHistoryRender();
-    }, function(err) {
-      console.error('[Firebase] Lỗi /history (child_added):', err);
-      state.firebaseOk = false;
-    });
+    }, function(err){ console.error('[Firebase] history add:', err); });
     histRef.on('child_changed', function(snap) {
       insertHistory(historyEntry(snap.key, snap.val() || {}));
       scheduleHistoryRender();
-    }, function(err) {
-      console.error('[Firebase] Lỗi /history (child_changed):', err);
-      state.firebaseOk = false;
-    });
+    }, function(err){ console.error('[Firebase] history changed:', err); });
     histRef.on('child_removed', function(snap) {
       // limitToLast trượt cửa sổ → bản ghi đầu tiên bị đẩy ra ngoài.
       var i = historyIndexByKey(snap.key);
@@ -2126,12 +2144,24 @@ function startRealtime() {
             'Đã khôi phục bộ ngưỡng đang chạy. Kiểm tra: OFF < ON từng cặp và Quạt phải khởi động trước Bơm.');
         }
       }
-    }, function(err) {
-      // Lắng nghe /settings chết mà không báo → form giữ ngưỡng mặc định
-      // 50/32 trong khi HMI chạy bộ khác, mà saveSettings vẫn hiện "Đã lưu".
-      console.error('[Firebase] Lỗi /settings:', err);
-      state.firebaseOk = false;
-      showToast('warning', 'Không đọc được cấu hình', 'Lắng nghe /settings thất bại — form có thể đang hiển thị giá trị cũ.');
+    }, function(err){ console.error('[Firebase] Lỗi settings:', err); });
+
+    // M4: HMI xác nhận THẬT — /settings_ack chỉ được push khi cấu hình đã
+    // được update_settings() chấp nhận; khớp với giá trị vừa lưu → báo thành
+    // công (thay cho timer 4s "Đã lưu" trước đây).
+    db.ref('settings_ack').on('value', function(snap){
+      var v = snap.val(); if (!v) return;
+      if (!state.pendingSettings) return;
+      var p = state.pendingSettings.vals;
+      if (p.fan_on === v.fan_on && p.fan_off === v.fan_off &&
+          p.pump_on === v.pump_on && p.pump_off === v.pump_off &&
+          p.max_timeouts === v.max_timeouts) {
+        clearTimeout(state.pendingSettings.timer);
+        state.pendingSettings = null;
+        showToast('success', 'HMI đã áp dụng cấu hình',
+          'Cấu hình đang chạy khớp với giá trị vừa lưu' +
+          (v.applied_at ? ' (áp dụng lúc ' + v.applied_at + ')' : '') + '.');
+      }
     });
 
     db.ref('control_ack').on('value', function(snap){
@@ -2155,18 +2185,13 @@ function startRealtime() {
       if (!isMine) return;
 
       clearCommandWatch();
+      state.estopUnacked = false;   // ACK của HMI = E-STOP đã có lời giải thích
       applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 5s
       setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
       setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
       if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');
       else showToast('warning','HMI từ chối lệnh',v.message||'');
-    }, function(err) {
-      // Không có error callback → lỗi phân quyền/treo lắng nghe im lặng,
-      // web chỉ còn timeout 12s "HMI chưa ACK" dù lệnh có thể đã thực thi.
-      console.error('[Firebase] Lỗi /control_ack:', err);
-      state.firebaseOk = false;
-      showToast('warning', 'Không nhận được ACK', 'Lắng nghe /control_ack thất bại — không thể xác nhận lệnh với HMI.');
-    });
+    }, function(err){ console.error('[Firebase] Lỗi control_ack:', err); });
 
   } catch (e) {
     console.error('[Firebase] startRealtime thất bại:', e);
@@ -2189,24 +2214,19 @@ window.addEventListener('hashchange', function() {
   if (ROUTES[v]) navigate(v);
 });
 
-// Filter listeners — mỗi phần tử CHỈ gắn 1 listener: <select> phát cả 'input'
-// lẫn 'change' nên nếu gắn cả hai thì renderAlarms chạy 2 lần mỗi lần đổi
-// (bảng tới 200 dòng). Textbox lấy 'input' để gõ là thấy ngay.
+// Filter listeners — MỖI phần tử chỉ 1 listener: <select> modern bắn cả
+// 'input' lẫn 'change' → nghe 2 event sẽ renderAlarms 2 lần mỗi lần đổi (E10).
 var filterIds = ['al-search', 'al-filter-type', 'al-filter-sev'];
 for (var fi = 0; fi < filterIds.length; fi++) {
   var fel = $(filterIds[fi]);
-  if (fel) fel.addEventListener(fel.tagName === 'INPUT' ? 'input' : 'change', renderAlarms);
+  if (fel) fel.addEventListener('input', renderAlarms);
 }
 
-// Ô tìm kiếm ở topbar trước đây không có handler (gõ rồi bấm Enter = chết).
-// Enter → sang trang Cảnh báo với đúng từ khoá đó.
+// Ô tìm kiếm topbar (E9b) — nối thẳng vào bộ lọc cảnh báo.
 var gs = $('global-search');
-if (gs) gs.addEventListener('keydown', function(e) {
-  if (e.key !== 'Enter') return;
-  var as = $('al-search');
-  if (as) as.value = gs.value;
-  navigate('alarms');
-  renderAlarms();
+if (gs) gs.addEventListener('input', function() {
+  var als = $('al-search');
+  if (als) { als.value = gs.value; renderAlarms(); }
 });
 
 // Periodic updates

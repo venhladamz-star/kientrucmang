@@ -1369,6 +1369,14 @@ function renderMonitoring() {
    ===================================================================== */
 function renderDevices() {
   var c = state.current;
+  setText('dev-cloud-status', state.firebaseOk ? 'Online' : 'Offline');
+  // Ngưỡng ĐANG CHẠY lấy từ /settings — 4 ô này trước đây chỉ giữ giá trị hardcode
+  // trong HTML, trong khi HMI chạy bộ ngưỡng khác (ví dụ 30/25 thay vì 32/30).
+  var s = state.settings || {};
+  setText('dev-fan-on',   'T ≥ ' + num(s.fan_on,  32).toFixed(1) + '°C');
+  setText('dev-fan-off',  'T ≤ ' + num(s.fan_off, 30).toFixed(1) + '°C');
+  setText('dev-pump-on',  'T ≥ ' + num(s.pump_on,  50).toFixed(1) + '°C');
+  setText('dev-pump-off', 'T ≤ ' + num(s.pump_off, 42).toFixed(1) + '°C');
   if (typeof c.t !== 'number' || !isFinite(c.t)) return;
   if (typeof c.h !== 'number' || !isFinite(c.h)) return;
   setText('dev-sht-t', c.t.toFixed(1) + ' °C');
@@ -1378,14 +1386,6 @@ function renderDevices() {
   setText('dev-rly-ch2', c.fan ? 'ON' : 'OFF');
   setText('dev-fan-status', c.fan ? 'Đang quay' : 'Đứng yên');
   setText('dev-pump-status', c.pump ? 'Đang phun' : 'Đứng yên');
-  setText('dev-cloud-status', state.firebaseOk ? 'Online' : 'Offline');
-  // Ngưỡng ĐANG CHẠY lấy từ /settings — 4 ô này trước đây chỉ giữ giá trị hardcode
-  // trong HTML, trong khi HMI chạy bộ ngưỡng khác (ví dụ 30/25 thay vì 32/30).
-  var s = state.settings || {};
-  setText('dev-fan-on',   'T ≥ ' + num(s.fan_on,  32).toFixed(1) + '°C');
-  setText('dev-fan-off',  'T ≤ ' + num(s.fan_off, 30).toFixed(1) + '°C');
-  setText('dev-pump-on',  'T ≥ ' + num(s.pump_on,  50).toFixed(1) + '°C');
-  setText('dev-pump-off', 'T ≤ ' + num(s.pump_off, 42).toFixed(1) + '°C');
 }
 
 /* =====================================================================
@@ -1465,7 +1465,7 @@ function renderAlarmStats() {
   var seenTs = Number(state.lastSeenAlarmTs || 0);
   var unread = 0;
   for (var k = 0; k < state.alarms.length; k++) {
-    if (parseTs(state.alarms[k].timestamp).getTime() > seenTs) unread++;
+    if (alarmTs(state.alarms[k]) > seenTs) unread++;
   }
   if (badge) badge.textContent = unread > 0 ? String(unread) : '';
   var bell = $('bell-dot');
@@ -1688,7 +1688,7 @@ function commandSequence() {
   try { old = Number(localStorage.getItem('pumpvision_cmd_seq') || 0); } catch (e) {}
   old = Math.max(old, window.__cmdSeqMem || 0);
   if (!(old < 1e15)) old = 0;                 // bỏ seq cũ ~1e18 còn trong localStorage
-  var seq = Math.max(old + 1, Date.now());    // ~1.7e12, an toàn
+  var seq = Math.max(old + 1, Date.now(), num((state.current || {}).last_command_sequence, 0) + 1);  // vượt seq HMI đã nhận
   window.__cmdSeqMem = seq;
   try { localStorage.setItem('pumpvision_cmd_seq', String(seq)); } catch (e) {}
   return seq;
@@ -1837,7 +1837,7 @@ function writeControl(fields, opts) {
     setStatus('Đã gửi · chờ ACK');
   }).catch(function(err) {
     setStatus('Lỗi gửi');
-    restoreLocalState(prevSnap);
+    if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) restoreLocalState(prevSnap);
     if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) clearCommandWatch();
     showToast('critical', 'Không gửi được lệnh', err && err.message ? err.message : String(err));
   });
@@ -1903,18 +1903,18 @@ window.saveSettings = function() {
   };
   if (!(inRange(vals.fan_on) && inRange(vals.fan_off) && inRange(vals.pump_on) && inRange(vals.pump_off) &&
         vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
-        // Khớp với ControlEngine.update_settings(): quạt phải làm mát TRƯỚC
-        // khi bơm báo cháy, nếu không hệ thống sẽ xịt nước trước cả khi làm mát.
+        // Khớp ControlEngine.update_settings(): quạt phải làm mát TRƯỚC bơm báo cháy (không thì xịt nước trước khi làm mát).
         vals.fan_on <= vals.pump_on && vals.fan_off <= vals.pump_off &&
         Number.isInteger(vals.max_timeouts) && vals.max_timeouts === 1)) {
     showToast('warning','Cấu hình không hợp lệ','OFF < ON từng cặp, quạt ≤ bơm, ngưỡng trong -40..125°C; failsafe khóa ở đúng 1 chu kỳ.');
     return;
   }
+  var keys = ['fan_on','fan_off','pump_on','pump_off','max_timeouts'], s0 = state.settings || {};
+  if (keys.every(function(k){ return s0[k] === vals[k]; })) { showToast('info','Cấu hình đã khớp','Không có thay đổi — HMI đang chạy đúng giá trị này.'); return; }
   if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
   state.pendingSettings = {
     vals: vals,
-    // M4: KHÔNG còn timer 4s tự báo "Đã lưu" — chỉ /settings_ack xác nhận
-    // HMI THẬT SỰ áp dụng mới báo thành công; quá 10s → báo HMI chưa xác nhận.
+    // M4: KHÔNG còn timer 4s "Đã lưu" — chỉ /settings_ack xác nhận (quá 10s → báo HMI chưa xác nhận).
     timer: setTimeout(function(){
       state.pendingSettings = null;
       showToast('warning','HMI chưa xác nhận cấu hình','Chưa nhận /settings_ack sau 10s — HMI có thể offline.');
@@ -2015,9 +2015,9 @@ function startRealtime() {
       var v = snap.val();
       if (!v) return;
       var prev = state.current;
-      // Trong lúc chờ ACK, status đang bay là TRẠNG THÁI CŨ (HMI chưa áp lệnh) —
-      // đè trọn sẽ làm nút vừa bấm NHÁY về giá trị cũ; giữ mode/fan/pump/khóa từ optimistic.
-      var pend = !!state.pendingCmd;
+      // Trong lúc chờ ACK (status = TT cũ) hoặc status mang seq < ack mới nhất
+      // (status cũ về SAU ack) — giữ mode/fan/pump/khóa từ optimistic, không nháy.
+      var pend = !!state.pendingCmd || num(v.last_command_sequence, 0) < state.lastAckSequence;
       state.current = {
         t: num(v.temperature, isFinite(prev.t) ? prev.t : null),   // num(): fallback số cũ
         h: num(v.humidity,   isFinite(prev.h) ? prev.h : null),
@@ -2175,11 +2175,11 @@ function startRealtime() {
       // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
       if (!state.ackBaselineReady && !isMine) {
         state.ackBaselineReady = true;
-        state.lastAckSequence = Math.max(state.lastAckSequence, seq);
+        if (seq < 1e15) state.lastAckSequence = Math.max(state.lastAckSequence, seq);
         return;
       }
       state.ackBaselineReady = true;
-      if (seq > state.lastAckSequence) state.lastAckSequence = seq;
+      if (seq < 1e15 && seq > state.lastAckSequence) state.lastAckSequence = seq;
 
       // Không phải ACK cho lệnh mình đang chờ (HMI tự thao tác / SEQ cũ / đã timeout).
       if (!isMine) return;

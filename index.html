@@ -1723,7 +1723,7 @@ var ACK_TIMEOUT_MS = 12000;
 function setStatus(t) { var e = $('cmd-status'); if (e) e.textContent = t; }
 
 /* Ép trạng thái vừa gửi vào state.current NGAY LẬP TỨC (optimistic update):
-   1) Giao diện phản hồi tức thì thay vì chờ /system_status (5s) — E-STOP hiện
+   1) Giao diện phản hồi tức thì thay vì chờ /system_status (1s) — E-STOP hiện
       lock ngay, nút AUTO/MANUAL đổi màu ngay.
    2) Quan trọng hơn: lệnh thứ 2 được xây trên trạng thái MỚI. Nếu không, khi
       bạn bật quạt rồi bấm bơm trong vòng 5s, lệnh bơm sẽ mang fan_cmd=false
@@ -2015,16 +2015,16 @@ function startRealtime() {
       var v = snap.val();
       if (!v) return;
       var prev = state.current;
+      // Trong lúc chờ ACK, status đang bay là TRẠNG THÁI CŨ (HMI chưa áp lệnh) —
+      // đè trọn sẽ làm nút vừa bấm NHÁY về giá trị cũ; giữ mode/fan/pump/khóa từ optimistic.
+      var pend = !!state.pendingCmd;
       state.current = {
-        // num() với fallback = số cũ: tránh ghi NaN vào KPI khi thiếu trường.
-        t: num(v.temperature, isFinite(prev.t) ? prev.t : null),
+        t: num(v.temperature, isFinite(prev.t) ? prev.t : null),   // num(): fallback số cũ
         h: num(v.humidity,   isFinite(prev.h) ? prev.h : null),
-        fan: !!v.fan_state, pump: !!v.pump_state,
-        mode: v.mode || 'AUTO',
-        comm_ok: v.comm_ok !== false,
-        failsafe: !!v.failsafe,
-        emergency_lock: !!v.emergency_lock,
-        heartbeat: num(v.heartbeat, 0),
+        fan: pend ? prev.fan : !!v.fan_state, pump: pend ? prev.pump : !!v.pump_state,
+        mode: pend ? prev.mode : (v.mode || 'AUTO'), comm_ok: v.comm_ok !== false,
+        failsafe: !!v.failsafe, heartbeat: num(v.heartbeat, 0),
+        emergency_lock: pend ? prev.emergency_lock : !!v.emergency_lock,
         last_command_sequence: num(v.last_command_sequence, 0),
         last_command_result: String(v.last_command_result || '')
       };
@@ -2186,7 +2186,7 @@ function startRealtime() {
 
       clearCommandWatch();
       state.estopUnacked = false;   // ACK của HMI = E-STOP đã có lời giải thích
-      applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 5s
+      applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 1s
       setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
       setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
       if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');

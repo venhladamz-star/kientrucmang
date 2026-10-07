@@ -63,10 +63,10 @@ flowchart LR
 
 **Dòng dữ liệu chính:**
 
-1. `HMI.py` đọc SHT20 (1 s/lần) → đẩy `/system_status` + `/history` (5 s/lần)
+1. `HMI.py` đọc SHT20 (1 s/lần) → đẩy `/system_status` (1 s/lần) + `/history` (5 s/lần) · prune `/history` + `/alarms` bản >3 ngày mỗi 10 phút
 2. ERP lắng nghe → render dashboard, biểu đồ, bảng lịch sử
 3. Người vận hành bấm lệnh trên ERP → ghi `/control` kèm `command_sequence`
-4. HMI poll `/control` (0,75 s) → kiểm tra hạn dùng & thứ tự → chạy Modbus → ghi `/control_ack`
+4. HMI poll `/control` (0,3 s) → kiểm tra hạn dùng & thứ tự → chạy Modbus → ghi `/control_ack`
 5. ERP khớp `ack === seq` → báo **Đã xác nhận** (timeout 12 s)
 
 ---
@@ -117,6 +117,7 @@ Ngưỡng được **chỉnh sống từ ERP** (tab *Cài đặt*), có ràng bu
 - `OFF < ON` từng cặp
 - **Quạt phải làm mát TRƯỚC** khi bơm phun nước: `FAN_ON ≤ PUMP_ON` và `FAN_OFF ≤ PUMP_OFF`
 - HMI từ chối cấu hình sai → ghi đè lại `/settings` bằng bộ ngưỡng **đang chạy** → ERP tự khôi phục input
+- Ngưỡng được lưu kèm vào `hmi_state.json` khi thay đổi và nạp lại khi khởi động → boot lúc mất mạng vẫn chạy đúng ngưỡng (không rơi về default 32/30/50/42)
 
 ### An toàn
 
@@ -128,6 +129,7 @@ Ngưỡng được **chỉnh sống từ ERP** (tab *Cài đặt*), có ràng bu
 | **Quy tắc ngưỡng** | `max_timeouts` bị khóa ở **1** — không cho nới lỏng failsafe từ cloud |
 | **Chống replay** | Lệnh cũ hơn 30 s hoặc có `issued_at_ms` trước khi HMI khởi động → `REJECTED` |
 | **Chống lệch giờ** | Máy HMI và trình duyệt cho phép lệch tới **30 s** (NTP) |
+| **⚠️ E-STOP là phần mềm** | Nút ⛔ gửi lệnh qua cloud → HMI ghi coil Modbus. **Mất mạng / tắt HMI là không kích hoạt được** — muốn an toàn thật phải có nút nhấn vật lý (NC) trên mạch điện, không dựa vào phần mềm |
 
 ### Chế độ vận hành
 
@@ -171,12 +173,13 @@ python HMI.py
 
 **Điểm nhấn kỹ thuật:**
 
-- 🔐 Đăng nhập Firebase Auth (Email/Password) — dùng được khi Rules bật `auth != null`
+- 🔐 Web **không cần đăng nhập** — mở link là vào; HMI (desktop) vẫn đăng nhập Email/Password vì REST API cần token
 - 🔁 Lắng nghe lịch sử bằng `child_added / child_changed / child_removed` thay vì
   `value + limitToLast(300)` → mỗi chu kỳ chỉ tải **~400 B**, không tải lại 90 KB mỗi 5 giây
 - ⏱ **Cảnh báo ACK sau 12 s** nếu HMI không phản hồi, kèm gợi ý chẩn đoán
 - 🛡 Mọi dữ liệu từ cloud đều qua `escapeHTML()` / `num()` trước khi nhúng vào DOM (chống XSS)
 - 📱 Responsive, có menu trượt trên mobile
+- 🧩 Bảng **Cảnh báo** render lại toàn bộ (~200 phần tử) mỗi khi có alarm đổi — perf NIT, chấp nhận được ở quy mô này, chưa tối ưu (đợt 4 xác nhận bỏ qua)
 
 ---
 
@@ -186,16 +189,21 @@ Cả hai ứng dụng **chỉ** giao tiếp qua các node sau — đổi tên no
 
 | Node | HMI | ERP | Cấu trúc trường |
 |---|---|---|---|
-| `/system_status` | ghi 5 s | `on('value')` | `temperature, humidity, fan_state, pump_state, mode, comm_ok, failsafe, emergency_lock, heartbeat, last_command_sequence, last_command_result, timestamp` |
-| `/history/{ms}` | ghi 5 s | `child_added/changed/removed` | giống `system_status`, key = mili-giây |
-| `/alarms/{id}` | `push` | `value · limitToLast(200)` | `type, message, temperature, timestamp, alarm_id` |
-| `/control` | **đọc** 0,75 s | **`set()`** | `command_sequence, mode_cmd, fan_cmd, pump_cmd, emergency_cmd, clear_emergency, issued_at, issued_at_ms, issued_by` |
-| `/control_ack` | **ghi** | `value` + khớp `seq` | `command_sequence, accepted, result, message, mode, fan_state, pump_state, emergency_lock, timestamp` |
+| `/system_status` | ghi 1 s | `on('value')` | `temperature, humidity, fan_state, pump_state, mode, comm_ok, failsafe, emergency_lock, heartbeat, last_command_sequence, last_command_result, timestamp` |
+| `/history/{ms}` | ghi 5 s | `child_added/changed/removed` | giống `system_status`, key = mili-giây; prune bản >3 ngày (10 phút/lượt) |
+| `/alarms/{id}` | `push` | `value · limitToLast(200); prune bản >3 ngày` | `type, message, temperature, timestamp, alarm_id` |
+| `/control` | **đọc** 0,3 s | **`transaction()`** | `command_sequence, mode_cmd, fan_cmd, pump_cmd, emergency_cmd, clear_emergency, issued_at, issued_at_ms, issued_by, client_id` |
+| `/control_ack` | **ghi** | `value` + khớp `seq` + `client_id` | `command_sequence, accepted, result, message, mode, fan_state, pump_state, emergency_lock, timestamp, client_id` |
+| `/control_acks/{seq}` | **ghi** (song song với `/control_ack`) | `watchAck` theo seq đang chờ | giống `/control_ack` — mỗi seq 1 key riêng, client khác gửi lệnh không ghi đè mất ACK |
 | `/settings` | đọc 3 s | `set()` + `value` | `fan_on, fan_off, pump_on, pump_off, max_timeouts` |
 
-**Mã cảnh báo:** `FIRE` · `COMM_LOSS` · `EMERGENCY` · `FAN_ACTUATOR_FAIL` · `PUMP_ACTUATOR_FAIL`
+**Mã cảnh báo:** `FIRE` · `COMM_LOSS` · `EMERGENCY` · `FAN_ACTUATOR_FAIL` · `PUMP_ACTUATOR_FAIL` · `ESTOP_RELAY_FAIL`
 
 **Kết quả lệnh:** `PENDING` · `ACCEPTED` · `REJECTED`
+
+> ⚠️ **`/control` là 1 slot, không phải hàng đợi**: `transaction()` chỉ chặn ghi đè khi còn
+> lệnh chờ ACK (< 30 s) — gửi liên tiếp thì lệnh đến sau phải chờ lệnh trước được ACK
+> hoặc hết hạn. Cần lệnh mới ngay: chờ ACK rồi gửi tiếp.
 
 ---
 
@@ -204,21 +212,26 @@ Cả hai ứng dụng **chỉ** giao tiếp qua các node sau — đổi tên no
 ### 1. Firebase (một lần duy nhất)
 
 ```text
-Console → Authentication → Sign-in method → Bật "Email/Password"
+Console → Authentication → Sign-in method → Bật "Email/Password"   ← cho HMI (desktop)
 Console → Realtime Database → chọn vùng, rồi đặt Rules:
 ```
 
 ```json
 {
   "rules": {
-    ".read":  "auth != null",
-    ".write": "auth != null"
+    ".read":  true,
+    ".write": true
   }
 }
 ```
 
-> ⚠️ **Tuyệt đối không để `"write": true`.** Khi đó *bất kỳ ai* có databaseURL đều ghi được
-> `/control` và **điều khiển được máy bơm + còi từ xa**.
+> ℹ️ **Rules PHẢI mở** vì web không đăng nhập. Hệ quả: *bất kỳ ai* có URL đều ghi được
+> `/control` và **điều khiển được máy bơm + còi từ xa**. Đây là đánh đổi đã chọn để
+> không cần tài khoản (project lớp học). Muốn chặn lại: bật `"auth != null"` trở lại
+> **và** cho web đăng nhập (Anonymous Auth là cách nhẹ nhất — không cần email/mật khẩu).
+>
+> ⚠️ **Rules là cấu hình trên Firebase Console, code không tự đặt được** — trước khi
+> vận hành thật, hãy tự mở Console kiểm tra lại Rules (dự án này để `.read/.write: true`).
 >
 > Đồng hồ hai máy cần lệch **< 30 s** (NTP) để lệnh không bị từ chối oan.
 
@@ -235,7 +248,7 @@ Cắm adapter USB–RS485 → chọn cổng COM → **KẾT NỐI** (hoặc bậ
 
 ### 3. Web ERP
 
-Mở <https://venhladamz-star.github.io/kientrucmang/> và đăng nhập.
+Mở <https://venhladamz-star.github.io/kientrucmang/> là vào — **không cần đăng nhập**.
 Muốn tự host: bật **GitHub Pages → Deploy from branch → main / root**, file `index.html`
 chính là trang chủ.
 
@@ -255,8 +268,8 @@ chính là trang chủ.
 | `FAN_ON / FAN_OFF` | `32.0 / 30.0` | Ngưỡng hysteresis quạt (°C) |
 | `PUMP_ON / PUMP_OFF` | `50.0 / 42.0` | Ngưỡng hysteresis bơm (°C) |
 | `MAX_TIMEOUTS` | `1` | Chu kỳ mất dữ liệu trước khi failsafe — **bị khóa** |
-| `FB_PUSH_SEC / HISTORY_PUSH_SEC` | `5.0` | Chu kỳ đẩy lên Firebase (s) |
-| `CONTROL_POLL_SEC` | `0.75` | Chu kỳ poll `/control` (s) |
+| `FB_PUSH_SEC / HISTORY_PUSH_SEC` | `5.0` | Chu kỳ đẩy `/history` (s); `/system_status` dùng `POLL_INTERVAL` = 1 s |
+| `CONTROL_POLL_SEC` | `0.3` | Chu kỳ poll `/control` (s) |
 | `SETTINGS_POLL_SEC` | `3.0` | Chu kỳ poll `/settings` (s) |
 | `CONTROL_MAX_AGE_SEC` | `30.0` | Lệnh cũ hơn bị bỏ (chống replay) |
 | `CLOCK_SKEW_TOL_MS` | `30000` | Dung sai lệch giờ HMI ↔ trình duyệt |
@@ -269,13 +282,14 @@ chính là trang chủ.
 Dự án này **điều khiển cơ cấu vật lý thật**, nên hãy soát lại trước khi đặt repo **public**:
 
 - [ ] **`FIREBASE_API_KEY`, `FIREBASE_DB_URL`, tài khoản demo** đang hardcode trong
-      `HMI.py` và `index.html`. API key của Firebase Web API vốn không phải secret,
-      nhưng **password demo thì có** — nếu không muốn người lạ đăng nhập được, hãy
-      đổi mật khẩu và gỡ khỏi repo (hoặc đặt repo **private**).
-- [ ] Rules phải là `"auth != null"`, **không bao giờ** `".write": true`.
+      `HMI.py` (web **đã bỏ đăng nhập**, không còn password ở `index.html`).
+      API key của Firebase Web API vốn không phải secret, nhưng **password demo thì có**.
+- [ ] ⚠️ Rules **phải là `".read": true, ".write": true`** vì web không đăng nhập —
+      đọc thêm cảnh báo ở mục *Cài đặt & Triển khai → Firebase*. Muốn siết lại thì bật
+      `"auth != null"` **và** cho web đăng nhập (Anonymous Auth).
 - [ ] Nếu fork dự án: **thay `FIREBASE_DB_URL`** sang project của bạn, nếu không
       hai Instance sẽ ghi chung vào một database.
-- [ ] Đặt lại `DEMO_EMAIL` / `DEMO_PASSWORD` trước khi công khai.
+- [ ] Đặt lại `DEMO_EMAIL` / `DEMO_PASSWORD` trong `HMI.py` trước khi công khai.
 
 ---
 

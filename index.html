@@ -1623,13 +1623,13 @@ function playBeep(sev) {
 /* =====================================================================
    EXPORT
    ===================================================================== */
-/* BUG8 (CSV injection): ô CSV bắt đầu bằng = + - @ bị Excel/LibreOffice chấm
+/* BUG8 (CSV injection): ô CSV bắt đầu bằng = + - @ TAB/CR bị Excel/LibreOffice chấm
    thành CÔNG THỨC khi mở file. Đánh dấu ' chuẩn OWASP + escape nháy kép;
    số thuần (-5, 3.14) giữ nguyên → cột nhiệt độ vẫn là số. */
 function csvCell(v) {
   if (v == null) return '';
   var s = String(v);
-  if (/^[=+\-@]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
@@ -1884,8 +1884,8 @@ function writeControl(fields, opts) {
   };
 
   // Optimistic UI CÓ bản sao để hoàn tác nếu lệnh không tới HMI (BUG3);
-  // trạng thái khóa chỉ do applyAckState/system_status quyết định (M3).
-  var prevSnap = snapshotLocalState();
+  // L4: E-STOP chen ngang → prev lấy của lệnh ĐANG CHỜ; khóa do applyAckState/system_status (M3).
+  var prevSnap = (state.pendingCmd && state.pendingCmd.prev) || snapshotLocalState();
   applyLocalState(payload);
   watchAck(payload.command_sequence, prevSnap, payload.emergency_cmd);
   startAckTimeout(payload.command_sequence);   // H2: chạy NGAY, không đợi .then

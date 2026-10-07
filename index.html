@@ -967,16 +967,17 @@ tbody tr:last-child td{border-bottom:none}
    ===================================================================== */
 function $(id) { return document.getElementById(id); }
 function pad(n) { return String(n).padStart(2, '0'); }
-function fmtTime(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
-function fmtDT(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' ' + pad(d.getDate()) + '/' + (d.getMonth()+1); }
-function fmtFull(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + pad(d.getDate()) + '/' + (d.getMonth()+1) + '/' + d.getFullYear(); }
+function fmtTime(d) { if (!(d instanceof Date)) return '—'; return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function fmtDT(d) { if (!(d instanceof Date)) return '—'; return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ' ' + pad(d.getDate()) + '/' + (d.getMonth()+1); }
+function fmtFull(d) { if (!(d instanceof Date)) return '—'; return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + pad(d.getDate()) + '/' + (d.getMonth()+1) + '/' + d.getFullYear(); }
 
 function parseTs(ts) {
-  if (!ts) return new Date();
+  if (!ts) return null;
   var d = new Date(ts);
-  return isNaN(d.getTime()) ? new Date() : d;
+  return isNaN(d.getTime()) ? null : d;
 }
 function timeAgo(d) {
+  if (!d) return '—';
   var s = Math.floor((Date.now() - d.getTime()) / 1000);
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s/60) + 'm ago';
@@ -1013,7 +1014,7 @@ function safe(v, fallback) {
 var CLIENT_ID = 'web_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 var state = {
   device: null,
-  current: { t: null, h: null, fan: false, pump: false, mode: '--', comm_ok: true, failsafe: false, emergency_lock: false, heartbeat: 0 },
+  current: { t: null, h: null, fan: false, pump: false, mode: '--', comm_ok: false, failsafe: false, emergency_lock: false, heartbeat: 0 },
   history: [],
   alarms: [],
   seenKeys: {},
@@ -1448,8 +1449,8 @@ function alarmSeverity(type) {
 function alarmTs(a) {
   var ts = a ? a.timestamp : null;
   if (ts == null || ts === '') return 0;
-  var t = parseTs(ts).getTime();
-  return isFinite(t) ? t : 0;
+  var d = parseTs(ts);
+  return d ? d.getTime() : 0;
 }
 
 function renderAlarmStats() {
@@ -1478,7 +1479,11 @@ function renderAlarmStats() {
 }
 
 function markAlarmsRead() {
-  var latestTs = state.alarms.length ? alarmTs(state.alarms[0]) : Date.now();
+  // R7: MAX timestamp CA danh sach — truoc day lay alarms[0], record thieu ts
+  // sort len dau lam moc da xem khong tang, badge "chua doc" ket.
+  var latestTs = 0;
+  for (var i = 0; i < state.alarms.length; i++) latestTs = Math.max(latestTs, alarmTs(state.alarms[i]));
+  if (!state.alarms.length) latestTs = Date.now();
   state.lastSeenAlarmTs = Math.max(latestTs || 0, Number(state.lastSeenAlarmTs || 0));
   try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
   renderAlarmStats();
@@ -1645,7 +1650,7 @@ window.exportCSV = function(kind) {
   } else {
     csv = 'Timestamp,Temperature(C),Humidity(%),Fan,Pump,Mode\n';
     csv += state.history.map(function(p) {
-      return csvCell(p.time.toISOString()) + ',' + csvCell(p.t.toFixed(2)) + ',' + csvCell(p.h.toFixed(2)) + ',' +
+      return csvCell(p.time instanceof Date ? p.time.toISOString() : '') + ',' + csvCell(p.t.toFixed(2)) + ',' + csvCell(p.h.toFixed(2)) + ',' +
              csvCell(p.fan ? 'ON' : 'OFF') + ',' + csvCell(p.pump ? 'ON' : 'OFF') + ',' + csvCell(p.mode);
     }).join('\n');
     filename = 'telemetry_' + Date.now() + '.csv';
@@ -1658,7 +1663,7 @@ window.exportJSON = function() {
   var payload = {
     exported_at: new Date().toISOString(),
     device: state.device,
-    history: state.history.map(function(p){ return { time: p.time.toISOString(), t: p.t, h: p.h, fan: p.fan, pump: p.pump, mode: p.mode }; }),
+    history: state.history.map(function(p){ return { time: p.time instanceof Date ? p.time.toISOString() : '', t: p.t, h: p.h, fan: p.fan, pump: p.pump, mode: p.mode }; }),
     alarms: state.alarms
   };
   download(JSON.stringify(payload, null, 2), 'scada_export_' + Date.now() + '.json', 'application/json');
@@ -2103,7 +2108,7 @@ function startRealtime() {
         t: num(v.temperature, isFinite(prev.t) ? prev.t : null),   // num(): fallback số cũ
         h: num(v.humidity,   isFinite(prev.h) ? prev.h : null),
         fan: pend ? prev.fan : !!v.fan_state, pump: pend ? prev.pump : !!v.pump_state,
-        mode: pend ? prev.mode : (v.mode || 'AUTO'), comm_ok: v.comm_ok !== false,
+        mode: pend ? prev.mode : (v.mode || 'AUTO'), comm_ok: typeof v.comm_ok === 'boolean' ? v.comm_ok : false,
         failsafe: !!v.failsafe, heartbeat: num(v.heartbeat, 0),
         emergency_lock: pend ? prev.emergency_lock : !!v.emergency_lock,
         last_command_sequence: num(v.last_command_sequence, 0),
@@ -2184,7 +2189,7 @@ function startRealtime() {
         state.alarmsBaselineReady = true;
         for (var b = 0; b < list.length; b++) state.seenKeys[list[b].key] = true;
         if (!state.hasAlarmReadBaseline) {
-          state.lastSeenAlarmTs = list.length ? parseTs(list[0].timestamp).getTime() : Date.now();
+          state.lastSeenAlarmTs = list.length ? (alarmTs(list[0]) || Date.now()) : Date.now();
           state.hasAlarmReadBaseline = true;
           try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
         }

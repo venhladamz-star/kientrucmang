@@ -686,6 +686,7 @@ tbody tr:last-child td{border-bottom:none}
               <option value="FIRE">🔥 Cháy</option>
               <option value="COMM_LOSS">📡 Mất kết nối</option>
               <option value="EMERGENCY">🛑 Khẩn cấp (E-STOP)</option>
+              <option value="ESTOP_RELAY_FAIL">⚠️ Lỗi relay E-STOP</option>
               <option value="FAN_ACTUATOR_FAIL">🌀 Lỗi cơ cấu quạt</option>
               <option value="PUMP_ACTUATOR_FAIL">💧 Lỗi cơ cấu bơm</option>
             </select>
@@ -1007,6 +1008,9 @@ function safe(v, fallback) {
 /* =====================================================================
    STATE
    ===================================================================== */
+/* BUG4: định danh TAB này — lệnh /control và ACK mang client_id theo,
+   hai tab cùng command_sequence không nhận nhầm ACK của nhau. */
+var CLIENT_ID = 'web_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 var state = {
   device: null,
   current: { t: null, h: null, fan: false, pump: false, mode: '--', comm_ok: true, failsafe: false, emergency_lock: false, heartbeat: 0 },
@@ -1027,7 +1031,7 @@ var state = {
   lastAckSequence: 0,
   lastSeenAlarmTs: 0,
   hasAlarmReadBaseline: false,
-  pendingCmd: null,             // {seq, timer, prev, estop} — theo dõi ACK cho lệnh đang bay
+  pendingCmd: null,             // {seq, timer, prev, estop, unsub} — theo dõi ACK cho lệnh đang bay
   estopUnacked: false,          // H2: E-STOP đã gửi nhưng CHƯA nhận ACK → chặn Clear
   pendingSettings: null,        // {vals, timer} — vừa lưu /settings, chờ xác nhận
   activeToastKeys: {}
@@ -1433,6 +1437,7 @@ function alarmSeverity(type) {
     case 'COMM_LOSS': return 'HIGH';
     case 'FAN_ACTUATOR_FAIL': return 'HIGH';
     case 'PUMP_ACTUATOR_FAIL': return 'HIGH';
+    case 'ESTOP_RELAY_FAIL': return 'CRITICAL';   // relay E-STOP không ngắt được = mất chức năng an toàn
     default: return 'INFO';
   }
 }
@@ -1618,21 +1623,30 @@ function playBeep(sev) {
 /* =====================================================================
    EXPORT
    ===================================================================== */
+/* BUG8 (CSV injection): ô CSV bắt đầu bằng = + - @ bị Excel/LibreOffice chấm
+   thành CÔNG THỨC khi mở file. Đánh dấu ' chuẩn OWASP + escape nháy kép;
+   số thuần (-5, 3.14) giữ nguyên → cột nhiệt độ vẫn là số. */
+function csvCell(v) {
+  if (v == null) return '';
+  var s = String(v);
+  if (/^[=+\-@]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
 window.exportCSV = function(kind) {
   var csv = '', filename = '';
   if (kind === 'alarms') {
     csv = 'Timestamp,Type,Severity,Message,Temperature\n';
     csv += state.alarms.map(function(a) {
-      return '"' + (a.timestamp || '') + '","' + a.type + '","' + a.severity +
-             '","' + (a.message || '').replace(/"/g, '""') + '",' +
-             (a.temperature == null ? '' : a.temperature);
+      return csvCell(a.timestamp) + ',' + csvCell(a.type) + ',' + csvCell(a.severity) + ',' +
+             csvCell(a.message) + ',' + csvCell(a.temperature);
     }).join('\n');
     filename = 'alarms_' + Date.now() + '.csv';
   } else {
     csv = 'Timestamp,Temperature(C),Humidity(%),Fan,Pump,Mode\n';
     csv += state.history.map(function(p) {
-      return '"' + p.time.toISOString() + '","' + p.t.toFixed(2) + '","' + p.h.toFixed(2) +
-             '","' + (p.fan ? 'ON' : 'OFF') + '","' + (p.pump ? 'ON' : 'OFF') + '","' + p.mode + '"';
+      return csvCell(p.time.toISOString()) + ',' + csvCell(p.t.toFixed(2)) + ',' + csvCell(p.h.toFixed(2)) + ',' +
+             csvCell(p.fan ? 'ON' : 'OFF') + ',' + csvCell(p.pump ? 'ON' : 'OFF') + ',' + csvCell(p.mode);
     }).join('\n');
     filename = 'telemetry_' + Date.now() + '.csv';
   }
@@ -1765,12 +1779,55 @@ function restoreLocalState(s) {
 
 function clearCommandWatch() {
   if (state.pendingCmd && state.pendingCmd.timer) clearTimeout(state.pendingCmd.timer);
+  if (state.pendingCmd && state.pendingCmd.unsub) { try { state.pendingCmd.unsub(); } catch (e) {} }
   state.pendingCmd = null;
+}
+
+/* BUG3: /control_ack chỉ có 1 key — client khác gửi lệnh cùng lúc ghi đè
+   trong lúc mình chờ ACK → mất ACK. Gom xử lý ACK thành hàm dùng chung;
+   listener theo TỪNG seq (control_acks/{seq}) cũng gọi đây. Idempotent:
+   lần gọi thứ hai pendingCmd đã null → chỉ cập nhật lastAckSequence. */
+function handleAck(v) {
+  if (!v) return;
+  var seq = num(v.command_sequence, 0);
+  state.controlAck = v;
+  // BUG4: cùng seq nhưng KHÁC client_id = ACK cho lệnh của tab/client khác.
+  var isMine = !!(state.pendingCmd && seq === state.pendingCmd.seq &&
+                  (!v.client_id || v.client_id === CLIENT_ID));
+
+  // Snapshot ĐẦU TIÊN khi mở trang = ACK của phiên làm việc trước đó.
+  // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
+  if (!state.ackBaselineReady && !isMine) {
+    state.ackBaselineReady = true;
+    if (seq < 1e15) state.lastAckSequence = Math.max(state.lastAckSequence, seq);
+    return;
+  }
+  state.ackBaselineReady = true;
+  if (seq < 1e15 && seq > state.lastAckSequence) state.lastAckSequence = seq;
+
+  // Không phải ACK cho lệnh mình đang chờ (HMI tự thao tác / SEQ cũ / đã timeout).
+  if (!isMine) return;
+
+  clearCommandWatch();
+  state.estopUnacked = false;   // ACK của HMI = E-STOP đã có lời giải thích
+  applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 1s
+  setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
+  setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
+  if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');
+  else showToast('warning','HMI từ chối lệnh',v.message||'');
 }
 
 function watchAck(seq, prev, estop) {
   clearCommandWatch();
-  state.pendingCmd = { seq: seq, timer: null, prev: prev || null, estop: !!estop };
+  state.pendingCmd = { seq: seq, timer: null, prev: prev || null, estop: !!estop, unsub: null };
+  // BUG3: listener RIÊNG theo seq — ACK của mình không bị /control_ack bị
+  // client khác ghi đè. Gỡ trong clearCommandWatch (kể cả khi timeout).
+  try {
+    var ackRef = state.db.ref('control_acks/' + seq);
+    var onAck = function(snap) { var v = snap.val(); if (v) handleAck(v); };
+    ackRef.on('value', onAck, function(err) { console.error('[Firebase] Lỗi control_acks:', err); });
+    state.pendingCmd.unsub = function() { ackRef.off('value', onAck); };
+  } catch (e) {}
 }
 
 function startAckTimeout(seq) {
@@ -1779,7 +1836,7 @@ function startAckTimeout(seq) {
     if (!state.pendingCmd || state.pendingCmd.seq !== seq) return;
     var wasEstop = !!state.pendingCmd.estop;
     var prev = state.pendingCmd.prev;          // bản sao TRƯỚC optimistic update
-    state.pendingCmd = null;
+    clearCommandWatch();                       // BUG3: gỡ luôn listener theo seq
     restoreLocalState(prev);                   // lệnh KHÔNG tới HMI → hoàn tác
     if (wasEstop) {
       // H2: E-STOP không có ACK = KHÔNG chắc đã kích hoạt — báo rõ và
@@ -1822,7 +1879,8 @@ function writeControl(fields, opts) {
     clear_emergency: !!fields.clear_emergency,
     issued_at: new Date().toISOString(),
     issued_at_ms: Date.now(),
-    issued_by: 'ERP-WEB'
+    issued_by: 'ERP-WEB',
+    client_id: CLIENT_ID
   };
 
   // Optimistic UI CÓ bản sao để hoàn tác nếu lệnh không tới HMI (BUG3);
@@ -1833,7 +1891,30 @@ function writeControl(fields, opts) {
   startAckTimeout(payload.command_sequence);   // H2: chạy NGAY, không đợi .then
   setStatus('Đang gửi…  (chờ ACK)');
 
-  state.db.ref('control').set(payload).then(function() {
+  // T7: transaction — không bao giờ đè lệnh khác còn chờ ACK (<30s) và
+  // không đè emergency_cmd:true (trừ khi chính nó là Clear/E-STOP).
+  // BUG1: fresh phải có CẶN DƯỚI — issued_at TƯƠNG LAI (đồng hồ lệch) làm
+  // age âm → "tươi mãi", lệnh rác giữ /control → chặn cả Clear E-STOP.
+  // BUG4: ours = cùng seq + cùng client_id — 2 tab cùng seq không đè nhầm.
+  state.db.ref('control').transaction(function(cur) {
+    if (cur && typeof cur === 'object') {
+      var curSeq = num(cur.command_sequence, 0);
+      var ours = !!(state.pendingCmd && state.pendingCmd.seq === curSeq && cur.client_id === CLIENT_ID);
+      var age = Date.now() - num(cur.issued_at_ms, 0);
+      var fresh = age > -5000 && age < 30000;
+      var plausible = curSeq <= Date.now() + 300000;   // seq tương lai >5 phút = rác
+      if (cur.emergency_cmd === true && !payload.emergency_cmd && !payload.clear_emergency) return;
+      if (!payload.emergency_cmd && curSeq > state.lastAckSequence && fresh && plausible && !ours) return;
+    }
+    return payload;
+  }).then(function(res) {
+    if (res && res.committed === false) {
+      setStatus('Lệnh bị từ chối');
+      if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) restoreLocalState(prevSnap);
+      if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) clearCommandWatch();
+      showToast('warning', 'Có lệnh khác đang chờ HMI', 'Không ghi đè — thử lại sau giây lát.');
+      return;
+    }
     setStatus('Đã gửi · chờ ACK');
   }).catch(function(err) {
     setStatus('Lỗi gửi');
@@ -2165,32 +2246,7 @@ function startRealtime() {
     });
 
     db.ref('control_ack').on('value', function(snap){
-      var v = snap.val(); if (!v) return;
-      var seq = num(v.command_sequence, 0);
-      state.controlAck = v;
-
-      var isMine = !!(state.pendingCmd && seq === state.pendingCmd.seq);
-
-      // Snapshot ĐẦU TIÊN khi mở trang = ACK của phiên làm việc trước đó.
-      // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
-      if (!state.ackBaselineReady && !isMine) {
-        state.ackBaselineReady = true;
-        if (seq < 1e15) state.lastAckSequence = Math.max(state.lastAckSequence, seq);
-        return;
-      }
-      state.ackBaselineReady = true;
-      if (seq < 1e15 && seq > state.lastAckSequence) state.lastAckSequence = seq;
-
-      // Không phải ACK cho lệnh mình đang chờ (HMI tự thao tác / SEQ cũ / đã timeout).
-      if (!isMine) return;
-
-      clearCommandWatch();
-      state.estopUnacked = false;   // ACK của HMI = E-STOP đã có lời giải thích
-      applyAckState(v);   // áp trạng thái MỚI NHẤT — không phải chờ /system_status 1s
-      setText('cmd-status', v.accepted ? 'ACK · OK' : 'ACK · REJECT');
-      setText('cmd-detail', 'SEQ ' + seq + ' · ' + (v.result||'') + '\n' + (v.message||'') + '\n' + (v.timestamp||''));
-      if (v.accepted) showToast('success','HMI đã ACK',v.message||'Lệnh đã thực thi.');
-      else showToast('warning','HMI từ chối lệnh',v.message||'');
+      handleAck(snap.val());
     }, function(err){ console.error('[Firebase] Lỗi control_ack:', err); });
 
   } catch (e) {

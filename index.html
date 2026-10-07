@@ -134,7 +134,7 @@ body[data-device="phone"] .search-box{display:none}
 .btn-sm{padding:7px 12px;font-size:12px}
 
 /* ==================== CARDS ==================== */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;min-width:0}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
 .card-title{font-size:17px;font-weight:700;color:var(--text);letter-spacing:-.2px}
 .card-subtitle{font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:1.2px;font-weight:600;margin-top:4px}
@@ -293,7 +293,7 @@ tbody tr:last-child td{border-bottom:none}
 .toast-body{flex:1;min-width:0}
 .toast-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px}
 .toast-msg{font-size:12px;color:var(--text-soft);line-height:1.5}
-
+/* ==================== PASSWORD MODAL ==================== */#pw-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:9500;padding:16px}#pw-overlay.show{display:flex}#pw-modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);width:100%;max-width:340px;padding:24px 22px;animation:slideUp .25s .05s backwards}.pw-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:6px}.pw-sub{font-size:12px;color:var(--text-mute);line-height:1.55;margin-bottom:14px}#pw-input{width:100%;height:46px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-soft);padding:0 12px;font-size:22px;letter-spacing:8px;text-align:center;font-family:'JetBrains Mono',monospace;color:var(--text);outline:none}#pw-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}#pw-err{min-height:17px;font-size:12px;font-weight:600;color:var(--danger);margin-top:8px}.pw-actions{display:flex;gap:10px;margin-top:10px}.pw-actions .btn{flex:1;justify-content:center}
 /* ==================== SIDEBAR OVERLAY ==================== */
 .sidebar-overlay{display:none}
 @media(max-width:768px){
@@ -578,7 +578,7 @@ tbody tr:last-child td{border-bottom:none}
             </div>
           </div>
         </div>
-
+<div id="pw-overlay" onclick="pwClose()"><div id="pw-modal" onclick="event.stopPropagation()"><div class="pw-title">🔑 Nhập mật khẩu điều khiển</div><p class="pw-sub">Chỉ thao tác trong <b>Điều khiển</b> cần MK. Đúng 1 lần / 60 phút.</p><input id="pw-input" type="password" inputmode="numeric" maxlength="8" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')pwSubmit();else if(event.key==='Escape')pwClose()"><div id="pw-err"></div><div class="pw-actions"><button class="btn btn-ghost" onclick="pwClose()">Hủy</button><button class="btn btn-primary" onclick="pwSubmit()">Xác nhận</button></div></div></div>
         <div class="card">
           <div class="card-header">
             <div class="card-title">Load Distribution by Actuator</div>
@@ -1732,10 +1732,16 @@ function renderControlPanel() {
   if (clearBtn) { clearBtn.disabled = !locked; clearBtn.className = 'btn ' + (locked ? 'btn-primary' : 'btn-ghost') + ' ctrl-btn'; }
 }
 
+/* MK điều khiển (chỉ section Điều khiển): gate nằm trong writeControl — E-STOP đi
+   {urgent:true} nên bỏ qua. Nhập đúng 1 lần lưu 60 phút (localStorage pv_pw_at). */
+var PW_CODE = '0001', PW_TTL_MS = 60 * 60 * 1000, pwRetry = null;
+function pwUnlocked() { try { return Date.now() - Number(localStorage.getItem('pv_pw_at') || 0) < PW_TTL_MS; } catch (e) { return false; } }
+function pwGate(retry) { if (pwUnlocked()) return true; pwRetry = retry; $('pw-input').value = ''; $('pw-err').textContent = ''; $('pw-overlay').classList.add('show'); setTimeout(function () { $('pw-input').focus(); }, 60); return false; }
+function pwClose() { $('pw-overlay').classList.remove('show'); pwRetry = null; }
+function pwSubmit() { if ($('pw-input').value !== PW_CODE) { $('pw-err').textContent = 'Sai mật khẩu — thử lại.'; $('pw-input').focus(); return; } try { localStorage.setItem('pv_pw_at', String(Date.now())); } catch (e) {} var cb = pwRetry; pwClose(); if (cb) cb(); }
+
 var ACK_TIMEOUT_MS = 12000;
-
 function setStatus(t) { var e = $('cmd-status'); if (e) e.textContent = t; }
-
 /* Ép trạng thái vừa gửi vào state.current NGAY LẬP TỨC (optimistic update):
    1) Giao diện phản hồi tức thì thay vì chờ /system_status (1s) — E-STOP hiện
       lock ngay, nút AUTO/MANUAL đổi màu ngay.
@@ -1751,7 +1757,6 @@ function applyLocalState(p) {
   // E2: render là việc HIỂN THỊ — không được ném lỗi ra đường ra lệnh.
   try { renderDashboard(); renderDevices(); } catch (e) { console.error('[UI] render:', e); }
 }
-
 /* Ép trạng thái HMI trả về trong ACK — nguồn dữ liệu xác thực. */
 function applyAckState(v) {
   var c = state.current;
@@ -1761,14 +1766,12 @@ function applyAckState(v) {
   if (typeof v.emergency_lock === 'boolean') c.emergency_lock = v.emergency_lock;
   renderDashboard(); renderDevices();
 }
-
 /* Optimistic UI PHẢI có bản sao để hoàn tác khi lệnh KHÔNG tới HMI
    (set() lỗi / timeout ACK) — web không được "tự chém" trạng thái. */
 function snapshotLocalState() {
   var c = state.current;
   return { mode: c.mode, fan: c.fan, pump: c.pump, emergency_lock: c.emergency_lock };
 }
-
 function restoreLocalState(s) {
   if (!s) return;
   var c = state.current;
@@ -1776,13 +1779,11 @@ function restoreLocalState(s) {
   c.emergency_lock = s.emergency_lock;
   renderDashboard(); renderDevices();
 }
-
 function clearCommandWatch() {
   if (state.pendingCmd && state.pendingCmd.timer) clearTimeout(state.pendingCmd.timer);
   if (state.pendingCmd && state.pendingCmd.unsub) { try { state.pendingCmd.unsub(); } catch (e) {} }
   state.pendingCmd = null;
 }
-
 /* BUG3: /control_ack chỉ có 1 key — client khác gửi lệnh cùng lúc ghi đè
    trong lúc mình chờ ACK → mất ACK. Gom xử lý ACK thành hàm dùng chung;
    listener theo TỪNG seq (control_acks/{seq}) cũng gọi đây. Idempotent:
@@ -1794,7 +1795,6 @@ function handleAck(v) {
   // BUG4: cùng seq nhưng KHÁC client_id = ACK cho lệnh của tab/client khác.
   var isMine = !!(state.pendingCmd && seq === state.pendingCmd.seq &&
                   (!v.client_id || v.client_id === CLIENT_ID));
-
   // Snapshot ĐẦU TIÊN khi mở trang = ACK của phiên làm việc trước đó.
   // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
   if (!state.ackBaselineReady && !isMine) {
@@ -1869,7 +1869,7 @@ function writeControl(fields, opts) {
     showToast('warning', 'Đang chờ ACK', 'Chờ HMI xác nhận lệnh trước.');
     return false;
   }
-  var c = state.current;
+  if (!opts.urgent && !pwGate(function () { writeControl(fields, opts); })) return false; var c = state.current;
   var payload = {
     command_sequence: commandSequence(),
     mode_cmd: fields.mode_cmd || c.mode || 'AUTO',

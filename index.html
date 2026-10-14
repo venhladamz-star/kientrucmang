@@ -798,7 +798,7 @@ body[data-device="phone"] .search-box{display:none}
 .kpi-bar-fill.red{background:linear-gradient(90deg,#f87171,var(--danger))}
 
 .dash-grid{display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:24px}
-.chart-wrap{position:relative;height:320px}
+.chart-wrap{position:relative;height:320px;display:flex;flex-direction:column;gap:6px}.chart-wrap .lane{position:relative;flex:1;min-height:0}
 .chart-wrap.tall{height:400px}
 
 .status-list{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -1167,7 +1167,8 @@ tbody tr:last-child td{border-bottom:none}
               </div>
             </div>
             <div class="chart-wrap">
-              <canvas id="chart-live"></canvas>
+              <div class="lane"><canvas id="chart-live"></canvas></div>
+              <div class="lane"><canvas id="chart-live-h"></canvas></div>
             </div>
           </div>
 
@@ -1341,7 +1342,8 @@ tbody tr:last-child td{border-bottom:none}
             </div>
           </div>
           <div class="chart-wrap tall">
-            <canvas id="chart-mono"></canvas>
+            <div class="lane"><canvas id="chart-mono"></canvas></div>
+            <div class="lane"><canvas id="chart-mono-h"></canvas></div>
           </div>
         </div>
 
@@ -1873,35 +1875,23 @@ for (var ni = 0; ni < navItems.length; ni++) {
 /* =====================================================================
    CHARTS
    ===================================================================== */
-var liveChart = null, monoChart = null;
+var liveT = null, liveH = null, monoT = null, monoH = null;
 
-function makeDatasets() {
+function makeDs(humid) {
+  var rgb = humid ? '6,182,212' : '16,185,129';
   return [
     {
-      label: 'Nhiệt độ (°C)', data: [],
-      borderColor: '#10b981',
+      label: humid ? 'Độ ẩm (%)' : 'Nhiệt độ (°C)', data: [],
+      borderColor: humid ? '#06b6d4' : '#10b981',
       backgroundColor: function(ctx) {
-        var area = ctx.chart.chartArea; if (!area) return 'rgba(16,185,129,0.1)';
+        var area = ctx.chart.chartArea; if (!area) return 'rgba(' + rgb + ',0.1)';
         var g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-        g.addColorStop(0, 'rgba(16,185,129,0.22)');
-        g.addColorStop(1, 'rgba(16,185,129,0)');
+        g.addColorStop(0, 'rgba(' + rgb + ',0.10)');
+        g.addColorStop(1, 'rgba(' + rgb + ',0)');
         return g;
       },
       borderWidth: 2.5, tension: 0.4, pointRadius: 0, pointHoverRadius: 5,
       fill: true, yAxisID: 'y'
-    },
-    {
-      label: 'Độ ẩm (%)', data: [],
-      borderColor: '#06b6d4',
-      backgroundColor: function(ctx) {
-        var area = ctx.chart.chartArea; if (!area) return 'rgba(6,182,212,0.1)';
-        var g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-        g.addColorStop(0, 'rgba(6,182,212,0.18)');
-        g.addColorStop(1, 'rgba(6,182,212,0)');
-        return g;
-      },
-      borderWidth: 2.5, tension: 0.4, pointRadius: 0, pointHoverRadius: 5,
-      fill: true, yAxisID: 'y1'
     }
   ];
 }
@@ -1911,48 +1901,59 @@ function initCharts() {
     console.warn('[Chart] Chart.js chưa load — bỏ qua biểu đồ.');
     return;
   }
-  var opts = {
-    responsive: true, maintainAspectRatio: false,
-    animation: { duration: 300 },
-    interaction: { intersect: false, mode: 'index' },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        backgroundColor: '#0f172a', titleColor: '#fff', bodyColor: '#cbd5e1',
-        borderColor: '#1e293b', borderWidth: 1, padding: 12, cornerRadius: 8
-      }
-    },
-    scales: {
-      x: {
-        ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 8 },
-        grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false }
+  // Mỗi đại lượng nằm riêng1 làn (lane) → hai đường không bao giờ đè lên nhau.
+  function opts(humid, showX) {
+    var hex = humid ? '#06b6d4' : '#10b981';
+    return {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a', titleColor: '#fff', bodyColor: '#cbd5e1',
+          borderColor: '#1e293b', borderWidth: 1, padding: 12, cornerRadius: 8
+        }
       },
-      y: {
-        position: 'left',
-        title: { display: true, text: 'Nhiệt độ (°C)', color: '#10b981' },
-        ticks: { color: '#10b981', font: { size: 11 } },
-        grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false }
-      },
-      y1: {
-        position: 'right',
-        title: { display: true, text: 'Độ ẩm (%)', color: '#06b6d4' },
-        ticks: { color: '#06b6d4', font: { size: 11 } },
-        grid: { drawOnChartArea: false }, border: { display: false }
+      scales: {
+        x: {
+          ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 8, display: showX },
+          grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false }
+        },
+        y: {
+          position: 'left',
+          title: { display: true, text: humid ? 'Độ ẩm (%)' : 'Nhiệt độ (°C)', color: hex },
+          ticks: { color: hex, font: { size: 11 } },
+          grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false }
+        }
       }
-    }
-  };
+    };
+  }
   var lc = $('chart-live');
+  var lch = $('chart-live-h');
   var mc = $('chart-mono');
-  if (lc) liveChart = new Chart(lc, { type: 'line', data: { labels: [], datasets: makeDatasets() }, options: opts });
-  if (mc) monoChart = new Chart(mc, { type: 'line', data: { labels: [], datasets: makeDatasets() }, options: opts });
+  var mch = $('chart-mono-h');
+  if (lc) liveT = new Chart(lc, { type: 'line', data: { labels: [], datasets: makeDs(false) }, options: opts(false, true) });
+  if (lch) liveH = new Chart(lch, { type: 'line', data: { labels: [], datasets: makeDs(true) }, options: opts(true, false) });
+  if (mc) monoT = new Chart(mc, { type: 'line', data: { labels: [], datasets: makeDs(false) }, options: opts(false, true) });
+  if (mch) monoH = new Chart(mch, { type: 'line', data: { labels: [], datasets: makeDs(true) }, options: opts(true, false) });
 }
 
-function updateChart(chart, history) {
-  if (!chart) return;
-  chart.data.labels = history.map(function(p){ return fmtTime(p.time); });
-  chart.data.datasets[0].data = history.map(function(p){ return p.t; });
-  chart.data.datasets[1].data = history.map(function(p){ return p.h; });
-  chart.update('none');
+// Gói tối đa ~80 điểm hiển thị (lịch sử giữ 300) cho bớt dày, vẫn đủ cửa sổ thời gian.
+function updateCharts(tChart, hChart, history) {
+  var step = Math.max(1, Math.ceil(history.length / 80));
+  var pts = step === 1 ? history : history.filter(function(_, i){ return i % step === 0 || i === history.length - 1; });
+  var labels = pts.map(function(p){ return fmtTime(p.time); });
+  if (tChart) {
+    tChart.data.labels = labels;
+    tChart.data.datasets[0].data = pts.map(function(p){ return p.t; });
+    tChart.update('none');
+  }
+  if (hChart) {
+    hChart.data.labels = labels;
+    hChart.data.datasets[0].data = pts.map(function(p){ return p.h; });
+    hChart.update('none');
+  }
 }
 
 /* =====================================================================
@@ -2017,7 +2018,7 @@ function renderDashboard() {
   setStyle('kpi-pump-bar', 'width', pump ? '100%' : '0%');
   setText('kpi-pump-badge', pump ? '🔥 Đang phun' : 'CH1 · 0x0000');
 
-  updateChart(liveChart, state.history);
+  updateCharts(liveT, liveH, state.history);
   setText('chart-range', state.history.length + ' điểm dữ liệu');
 
   renderAssets();
@@ -2075,7 +2076,7 @@ function renderRecentAlarms() {
    RENDER: MONITORING
    ===================================================================== */
 function renderMonitoring() {
-  updateChart(monoChart, state.history);
+  updateCharts(monoT, monoH, state.history);
   setText('mon-chart-range', state.history.length + ' điểm dữ liệu');
   var tbody = $('live-table');
   if (!tbody) return;

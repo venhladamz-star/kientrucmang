@@ -1710,7 +1710,7 @@ function parseTs(ts) {
 }
 function timeAgo(d) {
   if (!d) return '—';
-  var s = Math.floor((Date.now() - d.getTime()) / 1000);
+  var s = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));   // F9: timestamp tương lai (lệch giờ) không hiện "-5s ago"
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s/60) + 'm ago';
   if (s < 86400) return Math.floor(s/3600) + 'h ago';
@@ -1756,7 +1756,6 @@ var state = {
   soundEnabled: false,
   firebaseOk: false,
   db: null,
-  controlAck: null,
   settings: { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 },
   historySourceReady: false,
   alarmsBaselineReady: false,   // snapshot đầu tiên của /alarms = baseline, KHÔNG toast
@@ -1995,7 +1994,7 @@ function renderDashboard() {
   var tClass = t >= th.pump_on ? 'red' : t >= th.fan_on ? 'orange' : 'green';
   setClass('kpi-t-val', 'kpi-value ' + tClass);
   setClass('kpi-t-bar', 'kpi-bar-fill ' + tClass);
-  setStyle('kpi-t-bar', 'width', Math.min(100, (t/60)*100) + '%');
+  setStyle('kpi-t-bar', 'width', Math.max(0, Math.min(100, (t/60)*100)) + '%');
 
   var tBadge = $('kpi-t-badge');
   if (tBadge) {
@@ -2005,7 +2004,7 @@ function renderDashboard() {
   }
 
   setHTML('kpi-h-val', h.toFixed(1) + '<span class="kpi-unit">%</span>');
-  setStyle('kpi-h-bar', 'width', Math.min(100, h) + '%');
+  setStyle('kpi-h-bar', 'width', Math.max(0, Math.min(100, h)) + '%');
   setText('kpi-h-badge', h < 30 ? 'Khô' : h > 70 ? 'Ẩm cao' : 'Bình thường');
 
   setText('kpi-fan-val', fan ? 'ON' : 'OFF');
@@ -2061,8 +2060,8 @@ function renderRecentAlarms() {
   for (var i = 0; i < recent.length; i++) {
     var al = recent[i];
     var sev = al.severity.toLowerCase() === 'critical' ? 'critical' : al.severity.toLowerCase() === 'high' ? 'warning' : 'info';
-    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : al.type.indexOf('ACTUATOR') >= 0 ? '⚙️' : 'ℹ️';
-    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : al.type.indexOf('ACTUATOR') >= 0 ? 'Lỗi cơ cấu chấp hành' : 'Cảnh báo';
+    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : al.type === 'EMERGENCY' ? '🛑' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️' : al.type.indexOf('ACTUATOR') >= 0 ? '⚙️' : 'ℹ️';
+    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : al.type === 'EMERGENCY' ? 'KHẨN CẤP — E-STOP' : al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' : al.type.indexOf('ACTUATOR') >= 0 ? 'Lỗi cơ cấu chấp hành' : 'Cảnh báo';
     html += '<div class="event-card ' + sev + '">';
     html += '<div class="event-icon ' + sev + '">' + icon + '</div>';
     html += '<div class="event-body"><div class="event-title">' + escapeHTML(title) + '</div><div class="event-desc">' + escapeHTML(al.message) + '</div></div>';
@@ -2090,8 +2089,8 @@ function renderMonitoring() {
     var r = rows[i];
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtDT(r.time) + '</td>';
-    html += '<td class="mono" style="font-weight:700">' + num(r.t, 0).toFixed(1) + ' °C</td>';
-    html += '<td class="mono">' + num(r.h, 0).toFixed(1) + ' %</td>';
+    html += '<td class="mono" style="font-weight:700">' + (typeof r.t === 'number' ? r.t.toFixed(1) + ' °C' : '—') + '</td>';
+    html += '<td class="mono">' + (typeof r.h === 'number' ? r.h.toFixed(1) + ' %' : '—') + '</td>';
     html += '<td><span class="sev-pill ' + (r.fan ? 'ok' : 'off') + '">' + (r.fan ? 'ON' : 'OFF') + '</span></td>';
     html += '<td><span class="sev-pill ' + (r.pump ? 'critical' : 'off') + '">' + (r.pump ? 'ON' : 'OFF') + '</span></td>';
     html += '<td class="hide-mobile"><span class="sev-pill ' + (r.mode === 'AUTO' ? 'info' : 'high') + '">' + safe(r.mode, 'AUTO') + '</span></td>';
@@ -2147,7 +2146,7 @@ function renderAlarms() {
   for (var i = 0; i < list.length; i++) {
     var al = list[i];
     var sevClass = al.severity.toLowerCase();
-    var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : 'ℹ️ ';
+    var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : al.type === 'EMERGENCY' ? '🛑 ' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️ ' : 'ℹ️ ';
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtFull(parseTs(al.timestamp)) + '</td>';
     html += '<td>' + icon + '<b style="font-size:12px">' + safe(al.type, 'UNKNOWN') + '</b></td>';
@@ -2214,7 +2213,8 @@ function markAlarmsRead() {
   // sort len dau lam moc da xem khong tang, badge "chua doc" ket.
   var latestTs = 0;
   for (var i = 0; i < state.alarms.length; i++) latestTs = Math.max(latestTs, alarmTs(state.alarms[i]));
-  if (!state.alarms.length) latestTs = Date.now();
+  // F2: rong list → KHONG dong dau Date.now() — alarm HMI toi sau (timestamp HMI)
+  // se bi coi da doc. latestTs=0 dong duoi giu nguyen moc cu.
   state.lastSeenAlarmTs = Math.max(latestTs || 0, Number(state.lastSeenAlarmTs || 0));
   try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
   renderAlarmStats();
@@ -2228,9 +2228,11 @@ function renderReports() {
   if (!hist.length) return;
   var temps = [], hums = [], sumT = 0, sumH = 0;
   for (var i = 0; i < hist.length; i++) {
-    temps.push(hist[i].t); hums.push(hist[i].h);
-    sumT += hist[i].t; sumH += hist[i].h;
+    // F7: bỏ qua điểm t/h null khi thống kê.
+    if (typeof hist[i].t === 'number') { temps.push(hist[i].t); sumT += hist[i].t; }
+    if (typeof hist[i].h === 'number') { hums.push(hist[i].h); sumH += hist[i].h; }
   }
+  if (!temps.length || !hums.length) return;   // F7: không đủ số liệu hợp lệ
   var avgT = sumT / temps.length;
   var avgH = sumH / hums.length;
   var minT = Math.min.apply(null, temps);
@@ -2303,7 +2305,9 @@ function showToast(type, title, msg) {
 
 function toastAlarm(al) {
   var title = al.type === 'FIRE' ? 'CHÁY — Quá nhiệt' :
-              al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : 'Cảnh báo';
+              al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' :
+              al.type === 'EMERGENCY' ? 'KHẨN CẤP — E-STOP' :
+              al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' : 'Cảnh báo';
   var type = al.severity === 'CRITICAL' ? 'critical' : al.severity === 'HIGH' ? 'warning' : 'info';
   showToast(type, title, al.message);
   if (state.soundEnabled) playBeep(al.severity);
@@ -2381,7 +2385,7 @@ window.exportCSV = function(kind) {
   } else {
     csv = 'Timestamp,Temperature(C),Humidity(%),Fan,Pump,Mode\n';
     csv += state.history.map(function(p) {
-      return csvCell(p.time instanceof Date ? p.time.toISOString() : '') + ',' + csvCell(p.t.toFixed(2)) + ',' + csvCell(p.h.toFixed(2)) + ',' +
+      return csvCell(p.time instanceof Date ? p.time.toISOString() : '') + ',' + csvCell(typeof p.t === 'number' ? p.t.toFixed(2) : '') + ',' + csvCell(typeof p.h === 'number' ? p.h.toFixed(2) : '') + ',' +
              csvCell(p.fan ? 'ON' : 'OFF') + ',' + csvCell(p.pump ? 'ON' : 'OFF') + ',' + csvCell(p.mode);
     }).join('\n');
     filename = 'telemetry_' + Date.now() + '.csv';
@@ -2500,7 +2504,8 @@ function applyAckState(v) {
   if (typeof v.fan_state === 'boolean') c.fan = v.fan_state;
   if (typeof v.pump_state === 'boolean') c.pump = v.pump_state;
   if (typeof v.emergency_lock === 'boolean') c.emergency_lock = v.emergency_lock;
-  renderDashboard(); renderDevices();
+  // E2/F4: render là HIỂN THỊ — không được ném lỗi vào đường ack Firebase.
+  try { renderDashboard(); renderDevices(); } catch (e) { console.error('[UI] render:', e); }
 }
 /* Optimistic UI PHẢI có bản sao để hoàn tác khi lệnh KHÔNG tới HMI
    (set() lỗi / timeout ACK) — web không được "tự chém" trạng thái. */
@@ -2513,7 +2518,8 @@ function restoreLocalState(s) {
   var c = state.current;
   c.mode = s.mode; c.fan = s.fan; c.pump = s.pump;
   c.emergency_lock = s.emergency_lock;
-  renderDashboard(); renderDevices();
+  // E2/F4: render là HIỂN THỊ — không được ném lỗi vào timer ACK.
+  try { renderDashboard(); renderDevices(); } catch (e) { console.error('[UI] render:', e); }
 }
 function clearCommandWatch() {
   if (state.pendingCmd && state.pendingCmd.timer) clearTimeout(state.pendingCmd.timer);
@@ -2527,7 +2533,6 @@ function clearCommandWatch() {
 function handleAck(v) {
   if (!v) return;
   var seq = num(v.command_sequence, 0);
-  state.controlAck = v;
   // BUG4: cùng seq nhưng KHÁC client_id = ACK cho lệnh của tab/client khác.
   var isMine = !!(state.pendingCmd && seq === state.pendingCmd.seq &&
                   (!v.client_id || v.client_id === CLIENT_ID));
@@ -2727,6 +2732,9 @@ function inRange(v) { return Number.isFinite(v) && v >= T_MIN && v <= T_MAX; }
 
 window.saveSettings = function() {
   if (!state.db) { showToast('warning','Firebase chưa sẵn sàng','Không thể lưu cấu hình.'); return; }
+  // M4.3: chỉnh ngưỡng bơm/quạt/quá số lần timeout là đổi cấu hình vận hành
+  // — cũng qua cổng mật khẩu như writeControl (client-only, UX nhất quán).
+  if (!pwGate(function () { saveSettings(); })) return;
   var vals = {
     fan_on: readNum('set-fan-on'),
     fan_off: readNum('set-fan-off'),
@@ -2737,13 +2745,13 @@ window.saveSettings = function() {
   if (!(inRange(vals.fan_on) && inRange(vals.fan_off) && inRange(vals.pump_on) && inRange(vals.pump_off) &&
         vals.fan_off < vals.fan_on && vals.pump_off < vals.pump_on &&
         // Khớp ControlEngine.update_settings(): quạt phải làm mát TRƯỚC bơm báo cháy (không thì xịt nước trước khi làm mát).
-        vals.fan_on <= vals.pump_on && vals.fan_off <= vals.pump_off &&
+        vals.fan_on < vals.pump_on && vals.fan_off <= vals.pump_off &&
         Number.isInteger(vals.max_timeouts) && vals.max_timeouts === 1)) {
-    showToast('warning','Cấu hình không hợp lệ','OFF < ON từng cặp, quạt ≤ bơm, ngưỡng trong -40..125°C; failsafe khóa ở đúng 1 chu kỳ.');
+    showToast('warning','Cấu hình không hợp lệ','OFF < ON từng cặp, quạt < bơm ở ON (≤ ở OFF), ngưỡng trong -40..125°C; failsafe khóa ở đúng 1 chu kỳ.');
     return;
   }
   var keys = ['fan_on','fan_off','pump_on','pump_off','max_timeouts'], s0 = state.settings || {};
-  if (keys.every(function(k){ return s0[k] === vals[k]; })) { showToast('info','Cấu hình đã khớp','Không có thay đổi — HMI đang chạy đúng giá trị này.'); return; }
+  if (keys.every(function(k){ return s0[k] === vals[k]; })) { showToast('info','Cấu hình đã khớp','Không có thay đổi — chưa cần gửi lại.'); return; }
   if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
   state.pendingSettings = {
     vals: vals,
@@ -2766,11 +2774,13 @@ function sanitizeSettings(v) {
   // Dùng num() thay vì Number(): Number(null) === 0 nên giá trị null trong DB
   // sẽ bị hiểu là 0 °C (fan_off = 0) thay vì rơi về mặc định an toàn.
   ['fan_on','fan_off','pump_on','pump_off'].forEach(function(k){
-    var n = num(v[k], NaN); if (Number.isFinite(n)) d[k] = n;
+    // F3: kèm miền -40..125°C như inRange() của saveSettings — giá trị ngoài
+    // miền bị bỏ, không được nạp vào state.settings.
+    var n = num(v[k], NaN); if (Number.isFinite(n) && n >= T_MIN && n <= T_MAX) d[k] = n;
   });
   d.max_timeouts = 1;
   if (!(d.fan_off < d.fan_on && d.pump_off < d.pump_on &&
-        d.fan_on <= d.pump_on && d.fan_off <= d.pump_off)) {
+        d.fan_on < d.pump_on && d.fan_off <= d.pump_off)) {
     return { fan_on:32, fan_off:30, pump_on:50, pump_off:42, max_timeouts:1 };
   }
   return d;
@@ -2778,8 +2788,11 @@ function sanitizeSettings(v) {
 
 /* ---------- Hỗ trợ lịch sử dạng mảng có key (xem histRef ở dưới) ---------- */
 function historyEntry(key, p) {
+  // F7: temperature/humidity thiếu/không hợp lệ → null (KHÔNG phải 0) — 0°C giả
+  // làm biểu đồ sụp xuống 0 và kéo lệch min/avg báo cáo.
   return { key: key, time: parseTs(p.timestamp),
-           t: num(p.temperature, 0), h: num(p.humidity, 0),
+           t: (typeof p.temperature === 'number' && isFinite(p.temperature)) ? p.temperature : null,
+           h: (typeof p.humidity === 'number' && isFinite(p.humidity)) ? p.humidity : null,
            fan: p.fan_state === true, pump: p.pump_state === true,
            mode: String(p.mode || 'AUTO') };
 }
@@ -2863,20 +2876,33 @@ function startRealtime() {
       };
       // H2: system_status xác nhận E-STOP đã CHỐT thật → bỏ cờ chưa xác nhận.
       if (state.estopUnacked && v.emergency_lock === true) state.estopUnacked = false;
-      // M1: age tính từ thời điểm MÁY NÀY nhận được heartbeat MỚI — không so
-      // timestamp của HMI với đồng hồ trình duyệt nữa (lệch giờ → LED báo sai).
+      // M1 (r2): age = thời điểm MÁY NÀY nhận được heartbeat MỚI — dùng giờ
+      // trình duyệt, KHÔNG so timestamp của HMI (đồng hồ HMI chậm hơn trình
+      // duyệt >15s từng làm LED RS-485/topbar báo sai "Timeout/Trễ" dù HMI
+      // vẫn chạy). M4.2: snapshot đầu seed luôn lastUpdate NGAY khi heartbeat
+      // còn tươi (chênh lệch ≤5s với giờ trình duyệt) — mở trang không còn
+      // chớp "Timeout" ~1s chờ heartbeat kế; bản cache cũ từ HMI đã tắt lệch
+      // giờ >5s giữ nguyên hành vi cũ (Timeout tới khi có heartbeat thật).
       var hb = num(v.heartbeat, 0);
-      if (hb !== state.lastHeartbeat) {
+      if (state.lastHeartbeat === 0) {
+        state.lastHeartbeat = hb;
+        if (hb > 0 && Math.abs(Date.now() / 1000 - hb) <= 5) state.lastUpdate = Date.now();
+      } else if (hb !== state.lastHeartbeat) {
         state.lastHeartbeat = hb;
         state.lastUpdate = Date.now();
       }
       if (!state.historySourceReady) {
         // Điểm tạm thời CHƯA có key — sẽ bị loại bỏ ngay khi listener
         // /history (child_added) của chính nó bắt đầu nhận dữ liệu.
-        state.history.push({key: null, time: parseTs(v.timestamp),
-                             t: state.current.t||0, h: state.current.h||0,
-                             fan:state.current.fan, pump:state.current.pump, mode:state.current.mode});
-        if (state.history.length > MAX_HISTORY) state.history.shift();
+        // F7: chỉ tạo điểm tạm khi t/h là số hữu hạn — thiếu sensor sẽ
+        // thành 0°C/0% giả trên biểu đồ (đồng nhất với historyEntry).
+        if (typeof state.current.t === 'number' && isFinite(state.current.t) &&
+            typeof state.current.h === 'number' && isFinite(state.current.h)) {
+          state.history.push({key: null, time: parseTs(v.timestamp),
+                               t: state.current.t, h: state.current.h,
+                               fan:state.current.fan, pump:state.current.pump, mode:state.current.mode});
+          if (state.history.length > MAX_HISTORY) state.history.shift();
+        }
       }
       renderDashboard(); renderMonitoring(); renderReports(); renderDevices();
     }, function(err) {
@@ -2926,7 +2952,8 @@ function startRealtime() {
           severity: alarmSeverity(type)
         });
       });
-      list.sort(function(a,b){ return parseTs(b.timestamp)-parseTs(a.timestamp); });
+      // F5: parseTs trả null (timestamp thiếu/sai) → trừ nhau ra NaN, sort mất thứ tự — coi null là 0.
+      list.sort(function(a,b){ return (parseTs(b.timestamp)||0)-(parseTs(a.timestamp)||0); });
       state.alarms = list;
 
       if (!state.alarmsBaselineReady) {
@@ -2936,7 +2963,11 @@ function startRealtime() {
         state.alarmsBaselineReady = true;
         for (var b = 0; b < list.length; b++) state.seenKeys[list[b].key] = true;
         if (!state.hasAlarmReadBaseline) {
-          state.lastSeenAlarmTs = list.length ? (alarmTs(list[0]) || Date.now()) : Date.now();
+          // M4.5: nhánh rỗng → 0 (không Date.now()): mở trang khi chưa có alarm
+          // mà stamp giờ trình duyệt thì alarm HMI tới sau (giờ HMI, thường
+          // chậm hơn) bị coi là đã đọc. L2196/2201: alarmTs — nếu a.timestamp
+          // thiếu thì 0 → cũng không được stamp Date.now() ở đây.
+          state.lastSeenAlarmTs = list.length ? (alarmTs(list[0]) || Date.now()) : 0;
           state.hasAlarmReadBaseline = true;
           try { localStorage.setItem('pumpvision_last_alarm_ts', String(state.lastSeenAlarmTs)); } catch(e) {}
         }

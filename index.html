@@ -735,6 +735,9 @@ body[data-device="phone"] .search-box{display:none}
 .icon-btn:hover{background:var(--surface-soft)}
 .icon-btn .dot-badge{position:absolute;top:8px;right:8px;width:8px;height:8px;background:var(--danger);border-radius:50%;border:2px solid #fff}
 .conn-pill{display:flex;align-items:center;gap:6px;padding:0 14px;height:40px;border-radius:var(--r-pill);background:var(--surface-soft);font-size:12px;font-weight:600;color:var(--text-soft);border:1px solid var(--border)}
+/* nit (r27): chip báo HMI đang chạy MÔ PHỎNG — dùng lại cờ simulation của
+   /system_status (trước đây map vào state.current.simulation rồi không ai đọc). */
+.sim-chip{display:inline-flex;align-items:center;padding:0 12px;height:34px;border-radius:var(--r-pill);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:#b45309;font-size:11px;font-weight:800;letter-spacing:.06em}
 .user-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#3b82f6);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;margin-left:8px;cursor:pointer;border:2px solid #fff;box-shadow:var(--shadow)}
 
 .content{flex:1;overflow-y:auto;padding:28px 32px 40px;background:var(--bg)}
@@ -967,7 +970,39 @@ tbody tr:last-child td{border-bottom:none}
 @media(max-width:430px){
   .control-grid{grid-template-columns:1fr}
 }
+/* ==================== ENV SUB-TABS: TWIN 3D + BIỂU ĐỒ MÔI TRƯỜNG (round-2, chỉ thêm) ==================== */
+.env-tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.env-tab{min-height:40px;padding:0 14px;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-mute);transition:color .15s,border-color .15s}
+.env-tab:hover{color:var(--text)}
+.env-tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+.env-tab-short{display:none}
+.env-panel[hidden]{display:none}
+.env-sub{font-size:12px;color:var(--text-mute);margin-top:4px}
+.env-twin-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.env-badge{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--r-pill);background:var(--surface-soft);border:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-mute);white-space:nowrap}
+.env-badge-ok{color:#059669;border-color:#a7f3d0;background:#ecfdf5}
+.env-badge-err{color:#dc2626;border-color:#fecaca;background:#fef2f2}
+.env-legend{display:flex;gap:14px;font-size:12px;color:var(--text-soft);font-weight:600;flex-wrap:wrap}
+.env-legend-item{display:inline-flex;align-items:center;gap:6px}
+.env-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+/* Container 3D: cao cố định 460px desktop; phone ≤640px clamp 300–420px (~55vh).
+   Chỉ đổi CHIỀU CAO — width luôn 100% cột để bundle 3D tự thích ứng khổ màn. */
+.env-twin-box{height:460px;width:100%}
+.env-lanes{display:grid;grid-template-columns:1fr;gap:12px}
+.env-lane{position:relative;height:260px;min-width:0}
+@media(max-width:640px){
+  .env-tab-full{display:none}
+  .env-tab-short{display:inline}
+  .env-twin-box{height:clamp(300px,55vh,420px)}
+  .env-lane{height:220px}
+}
+@media(min-width:1024px){
+  .env-lanes{grid-template-columns:1fr 1fr}   /* 2 lane song song trên laptop */
+}
 </style>
+<!-- Server Room Digital Twin (3D) — bundle UMD tự chứa React + three (tích hợp
+     theo server-room-digital-twin/README.md mục "Tích hợp vào ERP" phần B) -->
+<link rel="stylesheet" href="assets/server-room-twin.css?v=0.1.0">
 </head>
 <body>
 
@@ -1084,6 +1119,8 @@ tbody tr:last-child td{border-bottom:none}
       </div>
 
       <div class="topbar-right">
+        <!-- nit (r27): chip MÔ PHỎNG — hiện khi /system_status.simulation=true -->
+        <span class="sim-chip" id="sim-chip" style="display:none" title="HMI đang chạy chế độ mô phỏng — số liệu KHÔNG phải dữ liệu thật">MÔ PHỎNG</span>
         <div class="conn-pill">
           <span class="status-led" id="topbar-led"></span>
           <span id="topbar-conn-text">Đang kết nối</span>
@@ -1116,7 +1153,7 @@ tbody tr:last-child td{border-bottom:none}
           <div class="kpi-card">
             <div class="kpi-top">
               <div class="kpi-icon blue">🌡️</div>
-              <span class="kpi-badge gray" id="kpi-t-badge">Live</span>
+              <span class="kpi-badge gray" id="kpi-t-badge">—</span>
             </div>
             <div class="kpi-label">Nhiệt độ</div>
             <div class="kpi-value green" id="kpi-t-val">--.-<span class="kpi-unit">°C</span></div>
@@ -1309,12 +1346,52 @@ tbody tr:last-child td{border-bottom:none}
             </div>
           </div>
         </div>
-<div id="pw-overlay" onclick="pwClose()"><div id="pw-modal" onclick="event.stopPropagation()"><div class="pw-title">🔑 Nhập mật khẩu điều khiển</div><p class="pw-sub">Chỉ thao tác trong <b>Điều khiển</b> cần MK. Đúng 1 lần / 60 phút.</p><input id="pw-input" type="password" inputmode="numeric" maxlength="8" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')pwSubmit();else if(event.key==='Escape')pwClose()"><div id="pw-err"></div><div class="pw-actions"><button class="btn btn-ghost" onclick="pwClose()">Hủy</button><button class="btn btn-primary" onclick="pwSubmit()">Xác nhận</button></div></div></div>
         <div class="card">
           <div class="card-header">
             <div class="card-title">Load Distribution by Actuator</div>
           </div>
           <div class="asset-list" id="asset-list"></div>
+        </div>
+        <!-- ===== ENV SUB-TABS (round-2 — CHỈ CỘNG THÊM): Twin 3D + Biểu đồ môi trường.
+             Tab mặc định = Digital Twin (panel twin không có [hidden]). ===== -->
+        <div class="env-tabs" role="tablist" aria-label="Giám sát phòng máy">
+          <button class="env-tab active" role="tab" aria-selected="true" data-env-tab="twin" type="button">🗺 <span class="env-tab-full">Digital Twin</span><span class="env-tab-short">3D Twin</span></button>
+          <button class="env-tab" role="tab" aria-selected="false" data-env-tab="mon" type="button">📈 <span class="env-tab-full">Environmental Monitoring Over Time</span><span class="env-tab-short">Biểu đồ môi trường</span></button>
+        </div>
+        <div class="env-panel" id="env-panel-twin" role="tabpanel">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Digital Twin — Phòng server</div>
+                <div class="env-sub">Mô hình 3D realtime · nhiệt độ / độ ẩm / quạt / bơm</div>
+              </div>
+              <div class="env-twin-actions">
+                <span class="env-badge" id="twin-badge">3D: đang tải…</span>
+                <button id="twin-reset" class="btn btn-ghost" type="button">🧭 Góc nhìn toàn cảnh</button>
+                <button id="twin-plant" class="btn btn-ghost" type="button">🏭 Thiết bị ngoài</button>
+              </div>
+            </div>
+            <!-- Container 3D cao cố định: 460px desktop; ≤640px clamp(300px,55vh,420px) -->
+            <div id="twin" class="env-twin-box"></div>
+          </div>
+        </div>
+        <div class="env-panel" id="env-panel-mon" role="tabpanel" hidden>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Environmental Monitoring Over Time</div>
+                <div class="env-sub" id="env-mon-sub">Nhiệt độ + độ ẩm theo thời gian · 0 điểm dữ liệu</div>
+              </div>
+              <div class="env-legend">
+                <span class="env-legend-item"><i class="env-dot" style="background:#10b981"></i>Nhiệt độ</span>
+                <span class="env-legend-item"><i class="env-dot" style="background:#06b6d4"></i>Độ ẩm</span>
+              </div>
+            </div>
+            <div class="env-lanes">
+              <div class="env-lane"><canvas id="env-chart-t"></canvas></div>
+              <div class="env-lane"><canvas id="env-chart-h"></canvas></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1419,6 +1496,7 @@ tbody tr:last-child td{border-bottom:none}
               <option value="COMM_LOSS">📡 Mất kết nối</option>
               <option value="EMERGENCY">🛑 Khẩn cấp (E-STOP)</option>
               <option value="ESTOP_RELAY_FAIL">⚠️ Lỗi relay E-STOP</option>
+              <option value="SAFE_OFF_FAIL">🛡️ Tải chưa xác nhận OFF</option>
               <option value="FAN_ACTUATOR_FAIL">🌀 Lỗi cơ cấu quạt</option>
               <option value="PUMP_ACTUATOR_FAIL">💧 Lỗi cơ cấu bơm</option>
             </select>
@@ -1687,6 +1765,11 @@ tbody tr:last-child td{border-bottom:none}
   </main>
 </div>
 
+<!-- #4 (r25): pw-overlay Ở CẤP BODY (trước đây nằm TRONG #view-dashboard →
+    ancestor .view{display:none} khi mở tab Cài đặt → modal 0×0, pwGate() im lặng,
+    không mở khóa được Lưu cấu hình. Ở cấp body + position:fixed → hiện mọi tab. -->
+<div id="pw-overlay" onclick="pwClose()"><div id="pw-modal" onclick="event.stopPropagation()"><div class="pw-title">🔑 Nhập mật khẩu điều khiển</div><p class="pw-sub">Chỉ thao tác trong <b>Điều khiển</b> cần MK. Đúng 1 lần / 60 phút.</p><input id="pw-input" type="password" inputmode="numeric" maxlength="8" placeholder="••••" autocomplete="off" onkeydown="if(event.key==='Enter')pwSubmit();else if(event.key==='Escape')pwClose()"><div id="pw-err"></div><div class="pw-actions"><button class="btn btn-ghost" onclick="pwClose()">Hủy</button><button class="btn btn-primary" onclick="pwSubmit()">Xác nhận</button></div></div></div>
+
 <div id="toast"></div>
 
 <!-- Firebase Compat SDK -->
@@ -1761,11 +1844,16 @@ var state = {
   alarmsBaselineReady: false,   // snapshot đầu tiên của /alarms = baseline, KHÔNG toast
   ackBaselineReady: false,      // ACK cũ từ phiên trước KHÔNG được báo như lệnh mới
   lastAckSequence: 0,
+  lastAckAt: 0,                // L1b: thời điểm nâng lastAckSequence — status "lùi"
+                               // quá lâu ngoài grace thì KHÔNG phải đang catch-up nữa
   lastSeenAlarmTs: 0,
   hasAlarmReadBaseline: false,
   pendingCmd: null,             // {seq, timer, prev, estop, unsub} — theo dõi ACK cho lệnh đang bay
   estopUnacked: false,          // H2: E-STOP đã gửi nhưng CHƯA nhận ACK → chặn Clear
   pendingSettings: null,        // {vals, timer} — vừa lưu /settings, chờ xác nhận
+  settingsAcked: null,          // L3: bộ ngưỡng HMI ĐÃ xác nhận (/settings_ack) —
+                                // KHÔNG dùng state.settings so lại: nó bị echo sớm
+                                // từ set() cục bộ → HMI offline/từ chối vẫn ra "khớp"
   activeToastKeys: {}
 };
 try {
@@ -1963,10 +2051,22 @@ function renderDashboard() {
   // Panel điều khiển cần được cập nhật NGAY cả khi chưa có số liệu cảm biến,
   // nếu không các nút (E-STOP / AUTO / MANUAL) sẽ giữ trạng thái enabled sai.
   renderControlPanel();
+  // nit (r27): chip "MÔ PHỎNG" ở topbar — dùng lại cờ simulation từng dead
+  // (map vào state.current.simulation rồi không ai đọc); tính TRƯỚC guard t/h
+  // để chip vẫn bật/tắt đúng cả khi chưa có số liệu cảm biến.
+  var sc = $('sim-chip');
+  if (sc) sc.style.display = c.simulation ? 'inline-flex' : 'none';
   // E3: khối LED System Health phải nằm TRƯỚC guard t/h — các LED này không
   // phụ thuộc số liệu cảm biến; đặt SAU guard thì chúng giữ màu xanh tĩnh
   // trong HTML cả khi offline / chưa có dữ liệu.
   var age = state.lastUpdate ? (Date.now() - state.lastUpdate)/1000 : 999;
+  // #11/#20 (r25): HMI chết giữa chừng (crash → on_close không chạy → DB giữ
+  // trạng thái cũ, comm=true không kịp ghi) → /system_status đóng băng mà KPI
+  // vẫn render số CŨ như số THẬT (đo: 39.6°C '▲ Cao' + bơm ON giữ 9h32).
+  // Ngưỡng 60s = cùng mốc 'Mất kết nối' của updateConnection (15–60s 'Trễ'
+  // vẫn giữ số, topbar đã cảnh báo → tránh nháy KPI khi blip mạng ngắn).
+  var stale = age >= 60;
+  state.stale = stale;
   var rs485Ok = state.current.comm_ok !== false && age < 15;
   setClass('st-rs485', 'status-led ' + (rs485Ok ? 'on' : 'err'));
   setText('st-rs485-val', rs485Ok ? 'OK' : 'Timeout');
@@ -1981,6 +2081,39 @@ function renderDashboard() {
   var mode = c.mode;
   setClass('st-mode', 'status-led ' + (mode === 'AUTO' ? 'on' : 'warn'));
   setText('st-mode-val', mode);
+
+  // B8 (r26): nhánh stale PHẢI đứng TRƯỚC guard t/h. Khi HMI chết, RTDB
+  // xoá key temperature → c.t = null → guard (typeof c.t !== 'number') return
+  // SỚM → cả khối stale (badge "⚠ Hết dữ liệu", quạt/bơm "không xác định")
+  // KHÔNG BAO GIỜ chạy → ERP hiện "--.-°C" + badge tĩnh (đo thật: HMI chết
+  // 4h35 vẫn hiện "Live" → người vận hành bị báo "Live" khi không có mẫu nào).
+  if (stale) {
+    setHTML('kpi-t-val', '--.-<span class="kpi-unit">°C</span>');
+    setClass('kpi-t-val', 'kpi-value off');
+    setStyle('kpi-t-bar', 'width', '0%');
+    var tb = $('kpi-t-badge');
+    if (tb) { tb.className = 'kpi-badge down'; tb.textContent = '⚠ Hết dữ liệu'; }
+    setHTML('kpi-h-val', '--.-<span class="kpi-unit">%</span>');
+    setClass('kpi-h-val', 'kpi-value off');
+    setStyle('kpi-h-bar', 'width', '0%');
+    setText('kpi-h-badge', 'không xác định');
+    setText('kpi-fan-val', '—');
+    setClass('kpi-fan-val', 'kpi-value off');
+    setStyle('kpi-fan-bar', 'width', '0%');
+    setText('kpi-fan-badge', 'không xác định (mất link)');
+    setText('kpi-pump-val', '—');
+    setClass('kpi-pump-val', 'kpi-value off');
+    setStyle('kpi-pump-bar', 'width', '0%');
+    setText('kpi-pump-badge', 'không xác định (mất link)');
+    renderAssets();
+    return;
+  }
+
+  // B8b (r27): renderAssets TRƯỚC guard t/h — stale=false mà t=null (HMI mới
+  // boot / chưa có mẫu) thì guard return sớm → hàm vẽ asset không bao giờ chạy
+  // → asset-list rỗng (đo: 0 child). Hàm tự xử t/h thiếu-số bằng nhánh "không
+  // xác định" (N1: guard typeof phủ CẢ c.t lẫn c.h) → không cần xoá guard này.
+  renderAssets();
 
   // LƯU Ý: isFinite(null) === true (null → 0) nên PHẢI kiểm tra typeof,
   // nếu không sẽ lao vào t.toFixed(1) trên null khi Firebase chưa có dữ liệu.
@@ -2007,6 +2140,8 @@ function renderDashboard() {
   setStyle('kpi-h-bar', 'width', Math.max(0, Math.min(100, h)) + '%');
   setText('kpi-h-badge', h < 30 ? 'Khô' : h > 70 ? 'Ẩm cao' : 'Bình thường');
 
+  // #11/#20: cơ cấu 'không xác định (stale)' đã dựng ở nhánh stale ở TRÊN
+  // (chạy cả 2 chế độ, kể cả khi c.t = null) — dưới đây là luồng bình thường.
   setText('kpi-fan-val', fan ? 'ON' : 'OFF');
   setClass('kpi-fan-val', 'kpi-value ' + (fan ? 'blue' : 'off'));
   setStyle('kpi-fan-bar', 'width', fan ? '100%' : '0%');
@@ -2019,17 +2154,32 @@ function renderDashboard() {
 
   updateCharts(liveT, liveH, state.history);
   setText('chart-range', state.history.length + ' điểm dữ liệu');
-
-  renderAssets();
+  // B8b (r27): renderAssets đã gọi ở trên (trước guard t/h) — không gọi lại.
 }
 
 function renderAssets() {
   var el = $('asset-list');
   if (!el) return;
   var c = state.current;
-  if (c.t === null) return;
   var th = state.settings || {};   // N6: ngưỡng ĐANG CHẠY từ /settings
-  var items = [
+  // #11/#20 (r25): stale (heartbeat quá 60s) → toàn bộ 'không xác định' thay
+  // vì render số/ON cũ như trạng thái thật.
+  // B8b (r27): guard PHẢI nằm TRONG nhánh "không xác định", không được return
+  // sớm trước nó — r26 để `if (c.t === null) return;` ở đầu hàm → HMI chết
+  // (t=null) → asset-list RỖNG (đo: 0 child) dù KPI đã hiện "⚠ Hết dữ liệu".
+  // stale=false + t=null (chưa có mẫu) cũng hiện "không xác định" thay vì rỗng.
+  // N1 (r27-1): guard phải phủ CẢ c.h — renderAssets chạy TRƯỚC guard t/h nên
+  // t là số + h = null (status có nhiệt độ, thiếu độ ẩm) rơi vào nhánh số →
+  // c.h.toFixed(null) ném TypeError thoát khỏi renderDashboard → cả vòng render
+  // chết mỗi 3s (KPI/biểu đồ/chart không bao giờ vẽ). Bỏ c.t === null vì
+  // typeof null = 'object' đã được typeof !== 'number' phủ.
+  var unknown = state.stale || typeof c.t !== 'number' || typeof c.h !== 'number';
+  var items = unknown ? [
+    { name: 'Nhiệt độ (SHT20)', val: 'không xác định', pct: 0, cls: '' },
+    { name: 'Độ ẩm (SHT20)', val: 'không xác định', pct: 0, cls: '' },
+    { name: 'Quạt 12V (CH2)', val: 'không xác định', pct: 0, cls: '' },
+    { name: 'Bơm MB370 (CH1)', val: 'không xác định', pct: 0, cls: '' }
+  ] : [
     { name: 'Nhiệt độ (SHT20)', val: c.t.toFixed(1) + ' °C', pct: Math.min(100, (c.t/60)*100),
       cls: c.t >= th.pump_on ? 'danger' : c.t >= th.fan_on ? 'warning' : 'green' },
     { name: 'Độ ẩm (SHT20)', val: c.h.toFixed(1) + ' %', pct: Math.min(100, c.h), cls: '' },
@@ -2060,8 +2210,10 @@ function renderRecentAlarms() {
   for (var i = 0; i < recent.length; i++) {
     var al = recent[i];
     var sev = al.severity.toLowerCase() === 'critical' ? 'critical' : al.severity.toLowerCase() === 'high' ? 'warning' : 'info';
-    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : al.type === 'EMERGENCY' ? '🛑' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️' : al.type.indexOf('ACTUATOR') >= 0 ? '⚙️' : 'ℹ️';
-    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : al.type === 'EMERGENCY' ? 'KHẨN CẤP — E-STOP' : al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' : al.type.indexOf('ACTUATOR') >= 0 ? 'Lỗi cơ cấu chấp hành' : 'Cảnh báo';
+    var icon = al.type === 'FIRE' ? '🔥' : al.type === 'COMM_LOSS' ? '📡' : al.type === 'EMERGENCY' ? '🛑' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️' : al.type === 'SAFE_OFF_FAIL' ? '🛡️' : al.type.indexOf('ACTUATOR') >= 0 ? '⚙️' : 'ℹ️';
+    var title = al.type === 'FIRE' ? 'Cảnh báo cháy' : al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' : al.type === 'EMERGENCY' ? 'KHẨN CẤP — E-STOP' : al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' : al.type === 'SAFE_OFF_FAIL' ? 'Tải chưa xác nhận OFF' : al.type.indexOf('ACTUATOR') >= 0 ? 'Lỗi cơ cấu chấp hành' : 'Cảnh báo';
+    // B2b (r27): alarm build cũ không có metadata nguồn → hậu tố rõ ràng.
+    if (al.simulation === null) title += ' · nguồn không rõ';
     html += '<div class="event-card ' + sev + '">';
     html += '<div class="event-icon ' + sev + '">' + icon + '</div>';
     html += '<div class="event-body"><div class="event-title">' + escapeHTML(title) + '</div><div class="event-desc">' + escapeHTML(al.message) + '</div></div>';
@@ -2146,10 +2298,12 @@ function renderAlarms() {
   for (var i = 0; i < list.length; i++) {
     var al = list[i];
     var sevClass = al.severity.toLowerCase();
-    var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : al.type === 'EMERGENCY' ? '🛑 ' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️ ' : 'ℹ️ ';
+    var icon = al.type === 'FIRE' ? '🔥 ' : al.type === 'COMM_LOSS' ? '📡 ' : al.type === 'EMERGENCY' ? '🛑 ' : al.type === 'ESTOP_RELAY_FAIL' ? '⚠️ ' : al.type === 'SAFE_OFF_FAIL' ? '🛡️ ' : 'ℹ️ ';
     html += '<tr>';
     html += '<td class="mono" style="color:var(--text-mute);font-size:12px">' + fmtFull(parseTs(al.timestamp)) + '</td>';
-    html += '<td>' + icon + '<b style="font-size:12px">' + safe(al.type, 'UNKNOWN') + '</b></td>';
+    html += '<td>' + icon + '<b style="font-size:12px">' + safe(al.type, 'UNKNOWN') +
+            // B2b (r27): alarm build cũ thiếu metadata nguồn → hậu tố trong cột loại.
+            (al.simulation === null ? ' · nguồn không rõ' : '') + '</b></td>';
     html += '<td><span class="sev-pill ' + sevClass + '">' + safe(al.severity, 'INFO') + '</span></td>';
     html += '<td style="color:var(--text-soft)">' + safe(al.message, '') + '</td>';
     html += '<td class="mono hide-mobile" style="font-weight:600">' +
@@ -2169,6 +2323,7 @@ function alarmSeverity(type) {
     case 'FAN_ACTUATOR_FAIL': return 'HIGH';
     case 'PUMP_ACTUATOR_FAIL': return 'HIGH';
     case 'ESTOP_RELAY_FAIL': return 'CRITICAL';   // relay E-STOP không ngắt được = mất chức năng an toàn
+    case 'SAFE_OFF_FAIL': return 'HIGH';          // #5 (r25): safe-off không xác nhận = tải có thể còn ON
     default: return 'INFO';
   }
 }
@@ -2224,6 +2379,11 @@ function markAlarmsRead() {
    RENDER: REPORTS
    ===================================================================== */
 function renderReports() {
+  // #12 (r25): uptime = từ lúc MỞ TRANG (state.startTime) — KHÔNG phụ thuộc
+  // history. Trước đây `if (!hist.length) return` ngay đầu hàm + caller cũng
+  // chắn `if (state.history.length)` → rp-uptime kẹt "00:00" suốt phiên.
+  var up = Math.floor((Date.now() - state.startTime) / 1000);
+  setText('rp-uptime', pad(Math.floor(up/3600)) + ':' + pad(Math.floor((up%3600)/60)));
   var hist = state.history;
   if (!hist.length) return;
   var temps = [], hums = [], sumT = 0, sumH = 0;
@@ -2255,9 +2415,6 @@ function renderReports() {
   }
   setText('rp-fan-time', Math.round((fanCount / hist.length) * 100) + '%');
   setText('rp-pump-time', Math.round((pumpCount / hist.length) * 100) + '%');
-
-  var up = Math.floor((Date.now() - state.startTime) / 1000);
-  setText('rp-uptime', pad(Math.floor(up/3600)) + ':' + pad(Math.floor((up%3600)/60)));
 }
 
 /* =====================================================================
@@ -2307,10 +2464,22 @@ function toastAlarm(al) {
   var title = al.type === 'FIRE' ? 'CHÁY — Quá nhiệt' :
               al.type === 'COMM_LOSS' ? 'Mất kết nối RS-485' :
               al.type === 'EMERGENCY' ? 'KHẨN CẤP — E-STOP' :
-              al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' : 'Cảnh báo';
+              al.type === 'ESTOP_RELAY_FAIL' ? 'E-STOP chưa xác nhận OFF' :
+              al.type === 'SAFE_OFF_FAIL' ? 'Tải chưa xác nhận OFF' : 'Cảnh báo';
+  // #19 (r25): alarm từ lần chạy MÔ PHỎNG → tiền tố rõ ràng; severity đã bị
+  // hạ INFO ở listener (sim === true ? 'INFO' : alarmSeverity) → không còn
+  // toast CRITICAL + beep giả mỗi lần demo.
+  // B6 (r26): simulation === true → KHÔNG playBeep (trước đây severity INFO
+  // vẫn bị playBeep('INFO') → n = 1 → VẪN BÍP 1 tiếng, khác với comment).
+  // simulation null/missing (alarm cũ, không rõ) → co như alarm thật → vẫn bíp.
+  // B2b (r27): alarm build cũ (88/88 đo được sim=null, 0 có nhãn) → KHÔNG được
+  // ghi nhãn "MÔ PHỎNG" (không rõ nguồn) nhưng PHẢI hậu tố "· nguồn không rõ"
+  // để operator biết đây là cảnh báo cũ thiếu metadata (gắn với 81 CRIT).
+  if (al.simulation) title = '(MÔ PHỎNG) ' + title;
+  else if (al.simulation === null) title += ' · nguồn không rõ';
   var type = al.severity === 'CRITICAL' ? 'critical' : al.severity === 'HIGH' ? 'warning' : 'info';
   showToast(type, title, al.message);
-  if (state.soundEnabled) playBeep(al.severity);
+  if (state.soundEnabled && !al.simulation) playBeep(al.severity);   // B6 (r26)
 }
 
 /* =====================================================================
@@ -2540,11 +2709,11 @@ function handleAck(v) {
   // Chỉ ghi nhận thứ tự, KHÔNG hiện "ACK · OK" như thể vừa gửi lệnh.
   if (!state.ackBaselineReady && !isMine) {
     state.ackBaselineReady = true;
-    if (seq < 1e15) state.lastAckSequence = Math.max(state.lastAckSequence, seq);
+    if (seq < 1e15) { state.lastAckSequence = Math.max(state.lastAckSequence, seq); state.lastAckAt = Date.now(); }
     return;
   }
   state.ackBaselineReady = true;
-  if (seq < 1e15 && seq > state.lastAckSequence) state.lastAckSequence = seq;
+  if (seq < 1e15 && seq > state.lastAckSequence) { state.lastAckSequence = seq; state.lastAckAt = Date.now(); }
 
   // Không phải ACK cho lệnh mình đang chờ (HMI tự thao tác / SEQ cũ / đã timeout).
   if (!isMine) return;
@@ -2640,14 +2809,20 @@ function writeControl(fields, opts) {
   // không đè nhầm) — lệnh CỦA MÌNH trong /control luôn cho ghi đè, kể cả khi
   // pendingCmd đã timeout: trước đây lệnh cũ chưa ACK (<30s) của chính tab này
   // từng khiến retry bị từ chối tới 30s ("Có lệnh khác đang chờ HMI" khó hiểu).
+  // #8 (r25): ghi rõ NGUYÊN NHÂN abort — trước đây mọi abort đều hiện "Có
+  // lệnh khác đang chờ HMI" (SAO: nút UI đã disable → chủ yếu gặp qua
+  // console/API). Abort do emergency_cmd:true còn kẹt trong /control = phải
+  // "✓ Giải phóng" trước — toast riêng cho từng nhánh.
+  var abortByEstop = false;
   state.db.ref('control').transaction(function(cur) {
+    abortByEstop = false;   // B5 (r26): reset MỖI lần callback chạy — Firebase có thể gọi lại transaction khi contention; nếu lần trước set true rồi lần cuối abort vì lý do khác (lệnh tab khác) → toast báo nhầm "E-STOP đang khóa /control".
     if (cur && typeof cur === 'object') {
       var curSeq = num(cur.command_sequence, 0);
       var ours = cur.client_id === CLIENT_ID;
       var age = Date.now() - num(cur.issued_at_ms, 0);
       var fresh = age > -5000 && age < 30000;
       var plausible = curSeq <= Date.now() + 300000;   // seq tương lai >5 phút = rác
-      if (cur.emergency_cmd === true && !payload.emergency_cmd && !payload.clear_emergency) return;
+      if (cur.emergency_cmd === true && !payload.emergency_cmd && !payload.clear_emergency) { abortByEstop = true; return; }
       if (!payload.emergency_cmd && curSeq > state.lastAckSequence && fresh && plausible && !ours) return;
     }
     return payload;
@@ -2656,7 +2831,11 @@ function writeControl(fields, opts) {
       setStatus('Lệnh bị từ chối');
       if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) restoreLocalState(prevSnap);
       if (state.pendingCmd && state.pendingCmd.seq === payload.command_sequence) clearCommandWatch();
-      showToast('warning', 'Có lệnh khác đang chờ HMI', 'Không ghi đè — thử lại sau giây lát.');
+      if (abortByEstop) {
+        showToast('warning', 'E-STOP đang khóa /control', 'Gửi "✓ Giải phóng" trước khi gửi lệnh thường.');
+      } else {
+        showToast('warning', 'Có lệnh khác đang chờ HMI', 'Không ghi đè — thử lại sau giây lát.');
+      }
       return;
     }
     setStatus('Đã gửi · chờ ACK');
@@ -2750,8 +2929,12 @@ window.saveSettings = function() {
     showToast('warning','Cấu hình không hợp lệ','OFF < ON từng cặp, quạt < bơm ở ON (≤ ở OFF), ngưỡng trong -40..125°C; failsafe khóa ở đúng 1 chu kỳ.');
     return;
   }
-  var keys = ['fan_on','fan_off','pump_on','pump_off','max_timeouts'], s0 = state.settings || {};
-  if (keys.every(function(k){ return s0[k] === vals[k]; })) { showToast('info','Cấu hình đã khớp','Không có thay đổi — chưa cần gửi lại.'); return; }
+  var keys = ['fan_on','fan_off','pump_on','pump_off','max_timeouts'], ack = state.settingsAcked;
+  // L3: so với BỘ NGƯỠNG HMI ĐÃ ACK (/settings_ack), không phải state.settings —
+  // state.settings bị echo ngay bởi set() cục bộ (listener /settings chạy đồng bộ
+  // trên bản ghi local) → HMI offline/từ chối vẫn ra "khớp" rồi return → không
+  // bao giờ gửi lại được nữa. ack=null (chưa từng nhận /settings_ack) → LUÔN gửi.
+  if (ack && keys.every(function(k){ return ack[k] === vals[k]; })) { showToast('info','Cấu hình đã khớp','Không có thay đổi — chưa cần gửi lại.'); return; }
   if (state.pendingSettings) { clearTimeout(state.pendingSettings.timer); state.pendingSettings = null; }
   state.pendingSettings = {
     vals: vals,
@@ -2861,19 +3044,47 @@ function startRealtime() {
       var v = snap.val();
       if (!v) return;
       var prev = state.current;
+      var statusSeq = num(v.last_command_sequence, 0);
+      // L1: HMI mất hmi_state.json / khởi tạo mới → status.seq = 0 (ControlEngine
+      // khởi tạo 0) trong khi lastAckSequence vẫn là seq phiên CŨ (~1.7e12, lấy
+      // từ /control_ack lúc mở trang) → so sánh `<` tuyệt đối luôn đúng →
+      // pend=true VĨNH VIỄN → web bỏ qua mọi /system_status (quạt/bơm/chế độ/
+      // khóa E-STOP đóng băng). Điều kiện statusSeq < 1e11 = "seq về 0/khởi tạo
+      // mới" (web LUÔN sinh seq ≈ Date.now() ≥ 1.7e12, không có ngoại lệ):
+      // lag thật chỉ vài giây → KHÔNG reset ở lag thường (giữ nguyên optimistic,
+      // không nháy ~1s như phương án bỏ pend). Sau khi hạ theo status, lệnh web
+      // mới tiếp theo sẽ cộng seq mới bình thường (handleAck Math.max).
+      // L1c: seq < 1e11 = HMI phiên MỚI (boot chưa khôi phục xong → status.seq
+      // = 0, hoặc hmi_state.json bị xóa) → KHÔNG coi là "status cũ đang
+      // catch-up", KHÔNG hạ chốt lastAckSequence (chốt writeControl chặn đè
+      // lệnh tab khác chưa ACK — hạ về 0 từng chặn oan lệnh ≤30s) → chỉ coi
+      // như trạng thái MỚI NHẤT, pend bỏ qua.
+      // L1b: seq ở ĐÚNG miền epoch-ms nhưng vẫn CŨ hơn ack (HMI khôi phục bản
+      // state cũ / clock client lệch ngược…) → lag THẬT ack→status chỉ ~1-2s:
+      // status "lùi" liên tục quá grace 15s kể từ ack cuối = không phải đang
+      // catch-up nữa → hạ lastAckSequence theo status, trả quyền cập nhật UI.
+      // pendingCmd đang chờ thì KHÔNG grace (giữ optimistic tới ACK/timeout riêng).
+      if (!state.pendingCmd && statusSeq >= 1e11 && statusSeq < state.lastAckSequence &&
+          Date.now() - state.lastAckAt > 15000) state.lastAckSequence = statusSeq;
       // Trong lúc chờ ACK (status = TT cũ) hoặc status mang seq < ack mới nhất
       // (status cũ về SAU ack) — giữ mode/fan/pump/khóa từ optimistic, không nháy.
-      var pend = !!state.pendingCmd || num(v.last_command_sequence, 0) < state.lastAckSequence;
+      var pend = !!state.pendingCmd ||
+                 (statusSeq >= 1e11 && statusSeq < state.lastAckSequence);
       state.current = {
         t: num(v.temperature, isFinite(prev.t) ? prev.t : null),   // num(): fallback số cũ
         h: num(v.humidity,   isFinite(prev.h) ? prev.h : null),
         fan: pend ? prev.fan : !!v.fan_state, pump: pend ? prev.pump : !!v.pump_state,
         mode: pend ? prev.mode : (v.mode || 'AUTO'), comm_ok: typeof v.comm_ok === 'boolean' ? v.comm_ok : false,
         failsafe: !!v.failsafe, heartbeat: num(v.heartbeat, 0),
+        simulation: !!v.simulation,   // #19 (r25): cờ MÔ PHỎNG từ /system_status
         emergency_lock: pend ? prev.emergency_lock : !!v.emergency_lock,
         last_command_sequence: num(v.last_command_sequence, 0),
         last_command_result: String(v.last_command_result || '')
       };
+      // Server Room Twin (CHỈ CỘNG THÊM): đẩy bản trạng thái MỚI NHẤT qua
+      // debounce 400ms — không push lịch sử. Guard window.* để callback
+      // Firebase không ném nếu script twin phía cuối trang chưa chạy.
+      if (window.queueTwinUpdate) window.queueTwinUpdate(state.current);
       // H2: system_status xác nhận E-STOP đã CHỐT thật → bỏ cờ chưa xác nhận.
       if (state.estopUnacked && v.emergency_lock === true) state.estopUnacked = false;
       // M1 (r2): age = thời điểm MÁY NÀY nhận được heartbeat MỚI — dùng giờ
@@ -2925,10 +3136,14 @@ function startRealtime() {
         state.historySourceReady = true;
       }
       insertHistory(historyEntry(snap.key, snap.val() || {}));
+      // ENV SUB-TABS (round-2, chỉ thêm): bản ghi mới → refresh chart nhiệt/ẩm
+      // + twin.update (debounce 400ms, đẩy bản mới nhất).
+      if (window.queueTwinUpdate) window.queueTwinUpdate(state.current);
       scheduleHistoryRender();
     }, function(err){ console.error('[Firebase] history add:', err); });
     histRef.on('child_changed', function(snap) {
       insertHistory(historyEntry(snap.key, snap.val() || {}));
+      if (window.queueTwinUpdate) window.queueTwinUpdate(state.current);
       scheduleHistoryRender();
     }, function(err){ console.error('[Firebase] history changed:', err); });
     histRef.on('child_removed', function(snap) {
@@ -2943,13 +3158,24 @@ function startRealtime() {
         var a = v[k] || {};
         var type = String(a.type || 'UNKNOWN');
         var tnum = (a.temperature == null || a.temperature === '') ? null : Number(a.temperature);
+        // #19 (r25): alarm mô phỏng (payload mới của HMI mang simulation) →
+        // hạ severity INFO; alarm cũ (thiếu trường) trước đây rơi về cờ MÔ
+        // PHỎNG của /system_status — ERP luôn hiện 'CHÁY — Quá nhiệt' CRITICAL
+        // + beep dù chỉ là demo.
+        // B2 (r26): KHÔNG kế thừa cờ phiên hiện tại — nhãn/severity của alarm
+        // LỊCH SỬ phải ổn định (kiểm toán được): alarm thiếu trường simulation
+        // (build r24) → sim = null (không rõ) → severity theo alarmSeverity(type)
+        // thật, KHÔNG gắn "(MÔ PHỎNG)" chỉ vì HMI đang chạy sim (đo: 88/88 alarm
+        // trong DB bị gán nhãn mô phỏng khi /system_status.simulation = true).
+        var sim = (typeof a.simulation === 'boolean') ? a.simulation : null;
         list.push({
           key: k,
           type: type,                                   // chuỗi → sẽ escape khi render
           message: String(a.message || ''),
           temperature: isFinite(tnum) ? tnum : null,     // tránh .toFixed() ném lỗi
           timestamp: a.timestamp,
-          severity: alarmSeverity(type)
+          severity: sim === true ? 'INFO' : alarmSeverity(type),
+          simulation: sim
         });
       });
       // F5: parseTs trả null (timestamp thiếu/sai) → trừ nhau ra NaN, sort mất thứ tự — coi null là 0.
@@ -3015,6 +3241,7 @@ function startRealtime() {
     // công (thay cho timer 4s "Đã lưu" trước đây).
     db.ref('settings_ack').on('value', function(snap){
       var v = snap.val(); if (!v) return;
+      state.settingsAcked = sanitizeSettings(v);  // L3: ghi NHẬN trước gate — kể cả khi không pending (trang mở mới vẫn biết bộ đã áp)
       if (!state.pendingSettings) return;
       var p = state.pendingSettings.vals;
       if (p.fan_on === v.fan_on && p.fan_off === v.fan_off &&
@@ -3068,9 +3295,23 @@ if (gs) gs.addEventListener('input', function() {
   if (als) { als.value = gs.value; renderAlarms(); }
 });
 
+// #14 (r25): seenKeys (dedup toast alarm) chỉ TĂNG — mỗi alarm mới 1 key,
+// không bao giờ dọn → phình RAM theo ngày/tuần (LOW nhưng vô hạn). Cửa sổ
+// alarm limitToLast(200) → key ngoài cửa sổ không quay lại → khi vượt ngưỡng
+// cắt về đúng tập key đang hiển thị.
+function pruneSeenKeys() {
+  var keys = Object.keys(state.seenKeys);
+  if (keys.length <= 600) return;
+  var keep = {};
+  state.alarms.forEach(function(a){ if (a && a.key) keep[a.key] = true; });
+  state.seenKeys = keep;
+}
+
 // Periodic updates
-setInterval(function() { updateConnection(); renderDashboard(); }, 3000);
-setInterval(function() { if (state.history.length) renderReports(); }, 5000);
+setInterval(function() { updateConnection(); renderDashboard(); pruneSeenKeys(); }, 3000);
+// #12 (r25): KHÔNG còn chắn `if (state.history.length)` — hàm tự lo (uptime
+// luôn set, stats chỉ render khi có data).
+setInterval(function() { renderReports(); }, 5000);
 
 // Navigate from hash
 var h0 = (location.hash || '').replace('#', '') || 'dashboard';
@@ -3092,6 +3333,155 @@ setTimeout(function() {
 window.addEventListener('error', function(e) {
   console.error('[Global error]', e.message || e.error);
 });
+</script>
+
+<!-- ===================== ENV SUB-TABS (round-2): TWIN 3D + BIỂU ĐỒ MÔI TRƯỜNG — CHỈ CỘNG THÊM ===
+     Bundle UMD tự chứa React + three (không npm install, không build lại).
+     ?v=0.1.0 chống cache bundle cũ. Biểu đồ dùng lại Chart.js CDN + makeDs/updateCharts sẵn có. -->
+<script src="assets/server-room-twin.umd.js?v=0.1.0"></script>
+<script>
+(function () {
+  var twinHandle = null;
+  var twinTimer = null;
+  var envT = null, envH = null;
+
+  /* ---------- Tab 2: 2 line chart môi trường. Tạo lúc panel còn ẩn — Chart.js
+     responsive:true + resize() khi mở tab nên không méo/0-width. ---------- */
+  function envOpts(humid) {
+    var hex = humid ? '#06b6d4' : '#10b981';
+    return {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: '#0f172a', titleColor: '#fff', bodyColor: '#cbd5e1', borderColor: '#1e293b', borderWidth: 1, padding: 12, cornerRadius: 8 }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 8 }, grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false } },
+        y: { position: 'left', title: { display: true, text: humid ? 'Độ ẩm (%)' : 'Nhiệt độ (°C)', color: hex }, ticks: { color: hex, font: { size: 11 } }, grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false } }
+      }
+    };
+  }
+  if (typeof Chart !== 'undefined') {
+    var ecT = document.getElementById('env-chart-t');
+    var ecH = document.getElementById('env-chart-h');
+    if (ecT) envT = new Chart(ecT, { type: 'line', data: { labels: [], datasets: makeDs(false) }, options: envOpts(false) });
+    if (ecH) envH = new Chart(ecH, { type: 'line', data: { labels: [], datasets: makeDs(true) }, options: envOpts(true) });
+  }
+
+  // Render lại từ state.history (tái sử dụng helper updateCharts có sẵn) +
+  // subtitle = số điểm dữ liệu.
+  function refreshEnvCharts() {
+    if (envT || envH) updateCharts(envT, envH, state.history);
+    var sub = document.getElementById('env-mon-sub');
+    if (sub) sub.textContent = 'Nhiệt độ + độ ẩm theo thời gian · ' + state.history.length + ' điểm dữ liệu';
+  }
+
+  /* ---------- Luồng dữ liệu chung: bản ghi MỚI NHẤT → 2 chart + twin.update
+     (debounce 400ms — mọi sự kiện dồn vào 1 lần đẩy, không lịch sử hàng loạt). ---------- */
+  window.queueTwinUpdate = function (cur) {
+    if (twinTimer) clearTimeout(twinTimer);
+    twinTimer = setTimeout(function () {
+      twinTimer = null;
+      refreshEnvCharts();
+      if (twinHandle && cur) {
+        twinHandle.update({
+          temperature: cur.t,      // state.current.t ← /system_status.temperature
+          humidity: cur.h,         // state.current.h ← /system_status.humidity
+          fanStatus: !!cur.fan,    // ← fan_state
+          pumpStatus: !!cur.pump   // ← pump_state
+        });
+      }
+    }, 400);
+  };
+
+  /* ---------- Tab 1: badge trạng thái 3D. Canvas ≥90% container → OK; chưa đủ
+     → "đang tải…" kiểm tra lại mỗi 500ms (kèm dispatch resize), tối đa 10 lần. ---------- */
+  var badgeTries = 0, badgeTimer = null;
+  function setBadge(txt, cls) {
+    var b = document.getElementById('twin-badge');
+    if (b) { b.textContent = txt; b.className = 'env-badge' + (cls ? ' ' + cls : ''); }
+  }
+  function checkBadge() {
+    var el = document.getElementById('twin');
+    var cv = el ? el.querySelector('canvas') : null;
+    if (cv && el && cv.offsetWidth >= el.offsetWidth * 0.9 && cv.offsetHeight >= el.offsetHeight * 0.9) {
+      if (badgeTimer) { clearInterval(badgeTimer); badgeTimer = null; }
+      var ver = 'webgl';
+      try {
+        var probe = document.createElement('canvas');
+        if (probe.getContext('webgl2')) ver = 'webgl2';
+        else if (probe.getContext('webgl')) ver = 'webgl1';
+      } catch (e) {}
+      setBadge('3D: OK (' + ver + ')', 'env-badge-ok');
+      return;
+    }
+    if (badgeTries >= 10) {
+      if (badgeTimer) { clearInterval(badgeTimer); badgeTimer = null; }
+      setBadge('⚠ 3D không khởi tạo được', 'env-badge-err');
+      return;
+    }
+    badgeTries++;
+    setBadge('3D: đang tải…', '');
+    if (twinHandle) window.dispatchEvent(new Event('resize'));  // buộc canvas đo lại
+  }
+  checkBadge();
+  if (badgeTries < 10) badgeTimer = setInterval(checkBadge, 500);
+
+  /* ---------- Mount sau khi panel hiển thị (mount lúc 0x0 → canvas kẹt). ---------- */
+  function mountTwin() {
+    if (twinHandle || typeof ServerRoomTwin === 'undefined') return false;
+    var el = document.getElementById('twin');
+    if (!el) return false;
+    var r = el.getBoundingClientRect();
+    // hash mở trang ở tab khác → thử lại mỗi 500ms tới khi dashboard hiện.
+    if (r.width < 2 || r.height < 2) return false;
+    twinHandle = ServerRoomTwin.mount(el);
+    window.twin = twinHandle;   // console test: twin.update / setView / resetView
+    window.queueTwinUpdate(state.current);  // 1 snapshot mới nhất, không lịch sử
+    return true;
+  }
+
+  if (!mountTwin()) {
+    var twinWait = setInterval(function () { if (mountTwin()) clearInterval(twinWait); }, 500);
+  }
+
+  /* ---------- Chuyển sub-tab: đúng 1 panel hiển thị; chart resize() khi mở
+     tab (render trong panel ẩn = width 0 → méo); dispatch resize khi quay về
+     twin để canvas 3D đo lại. ---------- */
+  var tabBtns = document.querySelectorAll('.env-tab');
+  function activateTab(name) {
+    for (var i = 0; i < tabBtns.length; i++) {
+      var on = tabBtns[i].getAttribute('data-env-tab') === name;
+      tabBtns[i].classList.toggle('active', on);
+      tabBtns[i].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    var pT = document.getElementById('env-panel-twin');
+    var pM = document.getElementById('env-panel-mon');
+    if (pT) pT.hidden = (name !== 'twin');
+    if (pM) pM.hidden = (name !== 'mon');
+    if (name === 'mon') { if (envT) envT.resize(); if (envH) envH.resize(); }
+    window.dispatchEvent(new Event('resize'));
+  }
+  for (var i = 0; i < tabBtns.length; i++) {
+    tabBtns[i].addEventListener('click', function (e) {
+      var btn = e.currentTarget;
+      activateTab(btn ? btn.getAttribute('data-env-tab') : 'twin');
+    });
+  }
+
+  var bPlant = document.getElementById('twin-plant');
+  var bReset = document.getElementById('twin-reset');
+  if (bPlant) bPlant.addEventListener('click', function () { if (twinHandle) twinHandle.setView('plant'); });
+  if (bReset) bReset.addEventListener('click', function () { if (twinHandle) twinHandle.resetView(); });
+
+  /* ---------- Xoay màn / đổi khổ: dispatch resize để canvas 3D + chart đo lại
+     (không để canvas giữ kích thước cũ — nền đen / giãn chữ). ---------- */
+  window.addEventListener('orientationchange', function () {
+    setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 250);
+  });
+})();
 </script>
 </body>
 </html>

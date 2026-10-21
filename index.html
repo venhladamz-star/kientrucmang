@@ -735,9 +735,6 @@ body[data-device="phone"] .search-box{display:none}
 .icon-btn:hover{background:var(--surface-soft)}
 .icon-btn .dot-badge{position:absolute;top:8px;right:8px;width:8px;height:8px;background:var(--danger);border-radius:50%;border:2px solid #fff}
 .conn-pill{display:flex;align-items:center;gap:6px;padding:0 14px;height:40px;border-radius:var(--r-pill);background:var(--surface-soft);font-size:12px;font-weight:600;color:var(--text-soft);border:1px solid var(--border)}
-/* nit (r27): chip báo HMI đang chạy MÔ PHỎNG — dùng lại cờ simulation của
-   /system_status (trước đây map vào state.current.simulation rồi không ai đọc). */
-.sim-chip{display:inline-flex;align-items:center;padding:0 12px;height:34px;border-radius:var(--r-pill);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);color:#b45309;font-size:11px;font-weight:800;letter-spacing:.06em}
 .user-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#3b82f6);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;margin-left:8px;cursor:pointer;border:2px solid #fff;box-shadow:var(--shadow)}
 
 .content{flex:1;overflow-y:auto;padding:28px 32px 40px;background:var(--bg)}
@@ -982,22 +979,13 @@ tbody tr:last-child td{border-bottom:none}
 .env-badge{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--r-pill);background:var(--surface-soft);border:1px solid var(--border);font-size:11px;font-weight:700;color:var(--text-mute);white-space:nowrap}
 .env-badge-ok{color:#059669;border-color:#a7f3d0;background:#ecfdf5}
 .env-badge-err{color:#dc2626;border-color:#fecaca;background:#fef2f2}
-.env-legend{display:flex;gap:14px;font-size:12px;color:var(--text-soft);font-weight:600;flex-wrap:wrap}
-.env-legend-item{display:inline-flex;align-items:center;gap:6px}
-.env-dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 /* Container 3D: cao cố định 460px desktop; phone ≤640px clamp 300–420px (~55vh).
    Chỉ đổi CHIỀU CAO — width luôn 100% cột để bundle 3D tự thích ứng khổ màn. */
 .env-twin-box{height:460px;width:100%}
-.env-lanes{display:grid;grid-template-columns:1fr;gap:12px}
-.env-lane{position:relative;height:260px;min-width:0}
 @media(max-width:640px){
   .env-tab-full{display:none}
   .env-tab-short{display:inline}
   .env-twin-box{height:clamp(300px,55vh,420px)}
-  .env-lane{height:220px}
-}
-@media(min-width:1024px){
-  .env-lanes{grid-template-columns:1fr 1fr}   /* 2 lane song song trên laptop */
 }
 </style>
 <!-- Server Room Digital Twin (3D) — bundle UMD tự chứa React + three (tích hợp
@@ -1119,8 +1107,6 @@ tbody tr:last-child td{border-bottom:none}
       </div>
 
       <div class="topbar-right">
-        <!-- nit (r27): chip MÔ PHỎNG — hiện khi /system_status.simulation=true -->
-        <span class="sim-chip" id="sim-chip" style="display:none" title="HMI đang chạy chế độ mô phỏng — số liệu KHÔNG phải dữ liệu thật">MÔ PHỎNG</span>
         <div class="conn-pill">
           <span class="status-led" id="topbar-led"></span>
           <span id="topbar-conn-text">Đang kết nối</span>
@@ -1192,20 +1178,48 @@ tbody tr:last-child td{border-bottom:none}
         </div>
 
         <div class="dash-grid">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Environmental Monitoring Over Time</div>
-                <div class="card-subtitle" id="chart-range">— điểm dữ liệu</div>
-              </div>
-              <div class="card-legend">
-                <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Nhiệt độ</span>
-                <span class="legend-item"><span class="legend-dot" style="background:#06b6d4"></span> Độ ẩm</span>
+          <!-- ===== ENV SUB-TABS (round-3): block 2-tab chiếm ĐÚNG ô cột trái
+               (vị trí/bố cục card Environmental Monitoring Over Time cũ);
+               System Health (cột phải) giữ nguyên. ===== -->
+          <div>
+            <div class="env-tabs" role="tablist" aria-label="Giám sát phòng máy">
+              <button class="env-tab active" role="tab" aria-selected="true" data-env-tab="twin" type="button">🗺 <span class="env-tab-full">Digital Twin</span><span class="env-tab-short">3D Twin</span></button>
+              <button class="env-tab" role="tab" aria-selected="false" data-env-tab="mon" type="button">📈 <span class="env-tab-full">Environmental Monitoring Over Time</span><span class="env-tab-short">Biểu đồ môi trường</span></button>
+            </div>
+            <div class="env-panel" id="env-panel-twin" role="tabpanel">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Digital Twin — Phòng server</div>
+                    <div class="env-sub">Mô hình 3D realtime · nhiệt độ / độ ẩm / quạt / bơm</div>
+                  </div>
+                  <div class="env-twin-actions">
+                    <span class="env-badge" id="twin-badge">3D: đang tải…</span>
+                    <button id="twin-reset" class="btn btn-ghost" type="button">🧭 Góc nhìn toàn cảnh</button>
+                    <button id="twin-plant" class="btn btn-ghost" type="button">🏭 Thiết bị ngoài</button>
+                  </div>
+                </div>
+                <!-- Container 3D cao cố định: 460px desktop; ≤640px clamp(300px,55vh,420px) -->
+                <div id="twin" class="env-twin-box"></div>
               </div>
             </div>
-            <div class="chart-wrap">
-              <div class="lane"><canvas id="chart-live"></canvas></div>
-              <div class="lane"><canvas id="chart-live-h"></canvas></div>
+            <div class="env-panel" id="env-panel-mon" role="tabpanel" hidden>
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <div class="card-title">Environmental Monitoring Over Time</div>
+                    <div class="card-subtitle" id="chart-range">— điểm dữ liệu</div>
+                  </div>
+                  <div class="card-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background:#10b981"></span> Nhiệt độ</span>
+                    <span class="legend-item"><span class="legend-dot" style="background:#06b6d4"></span> Độ ẩm</span>
+                  </div>
+                </div>
+                <div class="chart-wrap">
+                  <div class="lane"><canvas id="chart-live"></canvas></div>
+                  <div class="lane"><canvas id="chart-live-h"></canvas></div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1351,47 +1365,6 @@ tbody tr:last-child td{border-bottom:none}
             <div class="card-title">Load Distribution by Actuator</div>
           </div>
           <div class="asset-list" id="asset-list"></div>
-        </div>
-        <!-- ===== ENV SUB-TABS (round-2 — CHỈ CỘNG THÊM): Twin 3D + Biểu đồ môi trường.
-             Tab mặc định = Digital Twin (panel twin không có [hidden]). ===== -->
-        <div class="env-tabs" role="tablist" aria-label="Giám sát phòng máy">
-          <button class="env-tab active" role="tab" aria-selected="true" data-env-tab="twin" type="button">🗺 <span class="env-tab-full">Digital Twin</span><span class="env-tab-short">3D Twin</span></button>
-          <button class="env-tab" role="tab" aria-selected="false" data-env-tab="mon" type="button">📈 <span class="env-tab-full">Environmental Monitoring Over Time</span><span class="env-tab-short">Biểu đồ môi trường</span></button>
-        </div>
-        <div class="env-panel" id="env-panel-twin" role="tabpanel">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Digital Twin — Phòng server</div>
-                <div class="env-sub">Mô hình 3D realtime · nhiệt độ / độ ẩm / quạt / bơm</div>
-              </div>
-              <div class="env-twin-actions">
-                <span class="env-badge" id="twin-badge">3D: đang tải…</span>
-                <button id="twin-reset" class="btn btn-ghost" type="button">🧭 Góc nhìn toàn cảnh</button>
-                <button id="twin-plant" class="btn btn-ghost" type="button">🏭 Thiết bị ngoài</button>
-              </div>
-            </div>
-            <!-- Container 3D cao cố định: 460px desktop; ≤640px clamp(300px,55vh,420px) -->
-            <div id="twin" class="env-twin-box"></div>
-          </div>
-        </div>
-        <div class="env-panel" id="env-panel-mon" role="tabpanel" hidden>
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Environmental Monitoring Over Time</div>
-                <div class="env-sub" id="env-mon-sub">Nhiệt độ + độ ẩm theo thời gian · 0 điểm dữ liệu</div>
-              </div>
-              <div class="env-legend">
-                <span class="env-legend-item"><i class="env-dot" style="background:#10b981"></i>Nhiệt độ</span>
-                <span class="env-legend-item"><i class="env-dot" style="background:#06b6d4"></i>Độ ẩm</span>
-              </div>
-            </div>
-            <div class="env-lanes">
-              <div class="env-lane"><canvas id="env-chart-t"></canvas></div>
-              <div class="env-lane"><canvas id="env-chart-h"></canvas></div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -2051,11 +2024,6 @@ function renderDashboard() {
   // Panel điều khiển cần được cập nhật NGAY cả khi chưa có số liệu cảm biến,
   // nếu không các nút (E-STOP / AUTO / MANUAL) sẽ giữ trạng thái enabled sai.
   renderControlPanel();
-  // nit (r27): chip "MÔ PHỎNG" ở topbar — dùng lại cờ simulation từng dead
-  // (map vào state.current.simulation rồi không ai đọc); tính TRƯỚC guard t/h
-  // để chip vẫn bật/tắt đúng cả khi chưa có số liệu cảm biến.
-  var sc = $('sim-chip');
-  if (sc) sc.style.display = c.simulation ? 'inline-flex' : 'none';
   // E3: khối LED System Health phải nằm TRƯỚC guard t/h — các LED này không
   // phụ thuộc số liệu cảm biến; đặt SAU guard thì chúng giữ màu xanh tĩnh
   // trong HTML cả khi offline / chưa có dữ liệu.
@@ -3335,56 +3303,24 @@ window.addEventListener('error', function(e) {
 });
 </script>
 
-<!-- ===================== ENV SUB-TABS (round-2): TWIN 3D + BIỂU ĐỒ MÔI TRƯỜNG — CHỈ CỘNG THÊM ===
-     Bundle UMD tự chứa React + three (không npm install, không build lại).
-     ?v=0.1.0 chống cache bundle cũ. Biểu đồ dùng lại Chart.js CDN + makeDs/updateCharts sẵn có. -->
+<!-- ===================== ENV SUB-TABS (round-3): TWIN 3D + BIỂU ĐỒ MÔI TRƯỜNG — CHỈ CỘNG THÊM ===
+     Round-3: block 2-tab nằm ở đầu dash-grid (ô cột trái của card Environmental
+     Monitoring Over Time cũ). Panel mon DÙNG LẠI card chart-live/chart-live-h
+     có sẵn (render bởi renderDashboard — không nhân đôi chart).
+     Bundle UMD tự chứa React + three (không npm install, không build lại), ?v=0.1.0. -->
 <script src="assets/server-room-twin.umd.js?v=0.1.0"></script>
 <script>
 (function () {
   var twinHandle = null;
   var twinTimer = null;
-  var envT = null, envH = null;
 
-  /* ---------- Tab 2: 2 line chart môi trường. Tạo lúc panel còn ẩn — Chart.js
-     responsive:true + resize() khi mở tab nên không méo/0-width. ---------- */
-  function envOpts(humid) {
-    var hex = humid ? '#06b6d4' : '#10b981';
-    return {
-      responsive: true, maintainAspectRatio: false,
-      animation: { duration: 300 },
-      interaction: { intersect: false, mode: 'index' },
-      plugins: {
-        legend: { display: false },
-        tooltip: { backgroundColor: '#0f172a', titleColor: '#fff', bodyColor: '#cbd5e1', borderColor: '#1e293b', borderWidth: 1, padding: 12, cornerRadius: 8 }
-      },
-      scales: {
-        x: { ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 8 }, grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false } },
-        y: { position: 'left', title: { display: true, text: humid ? 'Độ ẩm (%)' : 'Nhiệt độ (°C)', color: hex }, ticks: { color: hex, font: { size: 11 } }, grid: { color: 'rgba(226,232,240,0.5)' }, border: { display: false } }
-      }
-    };
-  }
-  if (typeof Chart !== 'undefined') {
-    var ecT = document.getElementById('env-chart-t');
-    var ecH = document.getElementById('env-chart-h');
-    if (ecT) envT = new Chart(ecT, { type: 'line', data: { labels: [], datasets: makeDs(false) }, options: envOpts(false) });
-    if (ecH) envH = new Chart(ecH, { type: 'line', data: { labels: [], datasets: makeDs(true) }, options: envOpts(true) });
-  }
-
-  // Render lại từ state.history (tái sử dụng helper updateCharts có sẵn) +
-  // subtitle = số điểm dữ liệu.
-  function refreshEnvCharts() {
-    if (envT || envH) updateCharts(envT, envH, state.history);
-    var sub = document.getElementById('env-mon-sub');
-    if (sub) sub.textContent = 'Nhiệt độ + độ ẩm theo thời gian · ' + state.history.length + ' điểm dữ liệu';
-  }
-
-  /* ---------- Luồng dữ liệu chung: bản ghi MỚI NHẤT → 2 chart + twin.update
-     (debounce 400ms — mọi sự kiện dồn vào 1 lần đẩy, không lịch sử hàng loạt). ---------- */
+  /* ---------- Luồng dữ liệu chung: bản ghi MỚI NHẤT → twin.update (debounce
+     400ms — mọi sự kiện dồn vào 1 lần đẩy). Biểu đồ monitor do renderDashboard
+     tự cập nhật như cũ từ state.history. ---------- */
   window.queueTwinUpdate = function (cur) {
     if (twinTimer) clearTimeout(twinTimer);
     twinTimer = setTimeout(function () {
       twinTimer = null;
-      refreshEnvCharts();
       if (twinHandle && cur) {
         twinHandle.update({
           temperature: cur.t,      // state.current.t ← /system_status.temperature
@@ -3447,9 +3383,9 @@ window.addEventListener('error', function(e) {
     var twinWait = setInterval(function () { if (mountTwin()) clearInterval(twinWait); }, 500);
   }
 
-  /* ---------- Chuyển sub-tab: đúng 1 panel hiển thị; chart resize() khi mở
-     tab (render trong panel ẩn = width 0 → méo); dispatch resize khi quay về
-     twin để canvas 3D đo lại. ---------- */
+  /* ---------- Chuyển sub-tab: đúng 1 panel hiển thị; chart có sẵn (liveT/liveH)
+     resize() khi mở tab (render lúc panel ẩn = width 0 → méo); dispatch resize
+     khi quay về twin để canvas 3D đo lại. ---------- */
   var tabBtns = document.querySelectorAll('.env-tab');
   function activateTab(name) {
     for (var i = 0; i < tabBtns.length; i++) {
@@ -3461,7 +3397,12 @@ window.addEventListener('error', function(e) {
     var pM = document.getElementById('env-panel-mon');
     if (pT) pT.hidden = (name !== 'twin');
     if (pM) pM.hidden = (name !== 'mon');
-    if (name === 'mon') { if (envT) envT.resize(); if (envH) envH.resize(); }
+    if (name === 'mon') {
+      // liveT/liveH là biến global từ initCharts (card chart-live cũ — nay nằm
+      // trong panel mon): chart tạo lúc panel ẩn = 0 width → bắt buộc resize().
+      if (typeof liveT !== 'undefined' && liveT) liveT.resize();
+      if (typeof liveH !== 'undefined' && liveH) liveH.resize();
+    }
     window.dispatchEvent(new Event('resize'));
   }
   for (var i = 0; i < tabBtns.length; i++) {

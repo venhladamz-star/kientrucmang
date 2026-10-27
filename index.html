@@ -4,8 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PumpVision · SCADA ERP</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- PERF: preconnect trước, fonts nạp KHÔNG chặn render (media=print swap). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet"></noscript>
+<!-- PERF: Chart.js KHÔNG ở <head> — chuyển xuống trước app inline (xem dòng ~1930),
+     để HTML head+body trên được parse/paint trước, không bị chặn download CDN. -->
 <style>
 :root{
   --bg:#f4f6f8;--surface:#ffffff;--surface-soft:#f8fafc;
@@ -738,6 +743,155 @@ body[data-device="phone"] .search-box{display:none}
 .user-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--primary),#3b82f6);display:grid;place-items:center;color:#fff;font-weight:700;font-size:14px;margin-left:8px;cursor:pointer;border:2px solid #fff;box-shadow:var(--shadow)}
 
 .content{flex:1;overflow-y:auto;padding:28px 32px 40px;background:var(--bg)}
+
+/* ==================== ERP-TEST: TOP NAV NGANG (chỉ laptop) ====================
+   6 nút tab dời từ sidebar lên topbar (gộp 1 thanh). Phone giữ nguyên sidebar. */
+.topbar-brand{display:none;align-items:center;gap:10px;flex-shrink:0}
+.topbar-logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--primary),#3b82f6);display:grid;place-items:center;color:#fff;font-size:17px;box-shadow:0 4px 12px rgba(37,99,235,.3);flex-shrink:0}
+.topbar-brand h1{font-size:15px;font-weight:800;color:var(--text);letter-spacing:-.3px;white-space:nowrap}
+.topnav{display:none}
+body[data-device="laptop"] .sidebar{display:none}
+body[data-device="laptop"] .main{position:relative}
+/* Topbar TRONG SUỐT: không nền, không viền, không bóng — chỉ nút mới có kính. */
+body[data-device="laptop"] .topbar{
+  position:absolute;top:0;left:0;right:0;z-index:60;gap:12px;
+  background:transparent;border-bottom:0;box-shadow:none;
+  transition:transform .4s cubic-bezier(.4,0,.2,1),opacity .3s;
+}
+body[data-device="laptop"] .topbar.pv-hidden{transform:translateY(-100%);opacity:0;pointer-events:none}
+body[data-device="laptop"] .content{padding-top:96px;padding-left:88px}
+body[data-device="laptop"] .topbar-brand{display:flex}
+/* Ưu tiên chỗ cho nav: search co về trước (nav không bị bóp → không mất tab). */
+body[data-device="laptop"] .search-box{max-width:300px;min-width:0;flex:0 1 300px}
+body[data-device="laptop"] .topnav{
+  display:flex;align-items:center;gap:4px;flex:0 1 auto;
+  min-width:max-content;overflow-x:auto;scrollbar-width:none;
+}
+body[data-device="laptop"] .topnav::-webkit-scrollbar{display:none}
+body[data-device="laptop"] .topnav .nav-item{
+  position:relative;overflow:hidden;
+  margin-bottom:0;padding:9px 14px;border-radius:var(--r-pill);gap:6px;
+  font-size:13px;font-weight:600;color:var(--text-soft);
+  background:transparent;border:1px solid transparent;white-space:nowrap;flex-shrink:0;
+  transition:background .2s,color .2s,border-color .2s,box-shadow .25s,transform .25s;
+}
+body[data-device="laptop"] .topnav .nav-item::before{display:none}
+/* Quang đãng "liquid": vệt sáng chạy xiên qua nút khi hover. */
+body[data-device="laptop"] .topnav .nav-item::after{
+  content:'';position:absolute;top:0;left:-70%;width:55%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.8),transparent);
+  transform:skewX(-18deg);opacity:0;pointer-events:none;
+}
+body[data-device="laptop"] .topnav .nav-item:hover::after{animation:pvShine .65s ease}
+@keyframes pvShine{from{left:-70%;opacity:1}to{left:130%;opacity:0}}
+/* Liquid glass khi hover: khối kính trong + ánh sáng trong + bóng đổ mềm. */
+body[data-device="laptop"] .topnav .nav-item:hover{
+  background:linear-gradient(135deg,rgba(255,255,255,.55),rgba(255,255,255,.18));
+  -webkit-backdrop-filter:blur(14px) saturate(1.8);
+  backdrop-filter:blur(14px) saturate(1.8);
+  border-color:rgba(255,255,255,.85);
+  box-shadow:0 8px 24px rgba(15,23,42,.18),
+             inset 0 1px 0 rgba(255,255,255,.95),
+             inset 0 -12px 20px rgba(255,255,255,.28);
+  color:var(--text);transform:translateY(-2px);
+}
+body[data-device="laptop"] .topnav .nav-item:active{transform:translateY(0) scale(.97)}
+body[data-device="laptop"] .topnav .nav-item:focus-visible{
+  outline:2px solid var(--primary);outline-offset:2px;
+}
+body[data-device="laptop"] .topnav .nav-item.active{
+  background:rgba(255,255,255,.72);color:var(--primary);
+  border-color:rgba(255,255,255,.95);
+  box-shadow:0 4px 14px rgba(15,23,42,.12),inset 0 1px 0 rgba(255,255,255,.95);
+}
+/* Nút công cụ còn lại trên topbar cũng glass khi hover. */
+body[data-device="laptop"] .topbar .icon-btn:hover,
+body[data-device="laptop"] .topbar .conn-pill:hover,
+body[data-device="laptop"] .topbar .menu-toggle:hover{
+  background:linear-gradient(135deg,rgba(255,255,255,.55),rgba(255,255,255,.2));
+  -webkit-backdrop-filter:blur(14px) saturate(1.8);
+  backdrop-filter:blur(14px) saturate(1.8);
+  border-color:rgba(255,255,255,.85);
+  box-shadow:0 8px 24px rgba(15,23,42,.16),
+             inset 0 1px 0 rgba(255,255,255,.95),
+             inset 0 -10px 18px rgba(255,255,255,.25);
+  color:var(--text);
+}
+body[data-device="laptop"] .topbar .icon-btn:hover{transform:translateY(-2px)}
+body[data-device="laptop"] .topbar .search-box input:hover{
+  background:rgba(255,255,255,.45);
+  -webkit-backdrop-filter:blur(14px) saturate(1.6);
+  backdrop-filter:blur(14px) saturate(1.6);
+  border-color:rgba(255,255,255,.9);
+}
+body[data-device="laptop"] .topnav .nav-badge{margin-left:2px}
+@media(max-width:1100px){body[data-device="laptop"] .topbar-brand h1{display:none}}
+
+/* ==================== ERP-TEST: RAIL NAV TRÁI (thay topbar khi xa top) ====================
+   Kịch trên (≤40px): topbar hiện, rail ẨN.
+   Xa top: topbar ẩn vĩnh viễn; rail ẩn khi cuộn xuống, hiện khi cuộn lên ≥50px.
+   Nền rail trong suốt, nút tròn liquid glass, hover hiện tên. */
+.pv-rail{display:none}
+.pv-rail-label{
+  position:absolute;left:calc(100% + 12px);top:50%;
+  transform:translateY(-50%) translateX(-6px);
+  padding:7px 14px;border-radius:var(--r-pill);
+  background:linear-gradient(135deg,rgba(255,255,255,.68),rgba(255,255,255,.3));
+  -webkit-backdrop-filter:blur(14px) saturate(1.8);
+  backdrop-filter:blur(14px) saturate(1.8);
+  border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 8px 24px rgba(15,23,42,.2),inset 0 1px 0 rgba(255,255,255,.95);
+  font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;
+  opacity:0;pointer-events:none;
+  transition:opacity .18s ease,transform .18s ease;
+}
+body[data-device="laptop"] .pv-rail{
+  display:flex;flex-direction:column;gap:10px;
+  position:fixed;left:18px;top:50%;transform:translateY(-50%);
+  z-index:70;background:transparent;border:0;box-shadow:none;padding:0;margin:0;
+  transition:opacity .3s ease,transform .3s ease;
+}
+body[data-device="laptop"] .pv-rail.pv-off{
+  opacity:0;transform:translateY(-50%) translateX(-28px);pointer-events:none;
+}
+body[data-device="laptop"] .pv-rail .nav-item{
+  position:relative;width:46px;height:46px;
+  display:grid;place-items:center;
+  margin:0;padding:0;border-radius:50%;gap:0;
+  font-size:19px;line-height:1;color:var(--text-soft);
+  background:transparent;border:1px solid transparent;
+  cursor:pointer;user-select:none;flex-shrink:0;
+  transition:background .2s,color .2s,border-color .2s,box-shadow .25s,transform .25s;
+}
+body[data-device="laptop"] .pv-rail .nav-item::before{display:none}
+body[data-device="laptop"] .pv-rail .nav-item:hover,
+body[data-device="laptop"] .pv-rail .nav-item:focus-visible{
+  background:linear-gradient(135deg,rgba(255,255,255,.55),rgba(255,255,255,.18));
+  -webkit-backdrop-filter:blur(14px) saturate(1.8);
+  backdrop-filter:blur(14px) saturate(1.8);
+  border-color:rgba(255,255,255,.85);
+  box-shadow:0 8px 24px rgba(15,23,42,.18),
+             inset 0 1px 0 rgba(255,255,255,.95),
+             inset 0 -12px 20px rgba(255,255,255,.28);
+  color:var(--text);transform:translateY(-2px) scale(1.06);
+}
+body[data-device="laptop"] .pv-rail .nav-item:focus-visible{
+  outline:2px solid var(--primary);outline-offset:2px;
+}
+body[data-device="laptop"] .pv-rail .nav-item.active{
+  background:rgba(255,255,255,.72);color:var(--primary);
+  border-color:rgba(255,255,255,.95);
+  box-shadow:0 4px 14px rgba(15,23,42,.14),inset 0 1px 0 rgba(255,255,255,.95);
+}
+body[data-device="laptop"] .pv-rail .nav-badge{
+  position:absolute;top:2px;right:0;margin:0;min-width:18px;
+  padding:1px 6px;font-size:9px;
+}
+/* Tên tab hiện ra khi hover/focus, mất ngay khi rời chuột. */
+body[data-device="laptop"] .pv-rail .nav-item:hover .pv-rail-label,
+body[data-device="laptop"] .pv-rail .nav-item:focus-visible .pv-rail-label{
+  opacity:1;transform:translateY(-50%) translateX(0);
+}
 .content::-webkit-scrollbar{width:8px}
 .content::-webkit-scrollbar-track{background:transparent}
 .content::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:4px}
@@ -1011,15 +1165,22 @@ tbody tr:last-child td{border-bottom:none}
   </div>
 </div>
 <script>
-/* Boot loader: hiện đúng 3s rồi fade + gỡ khỏi DOM.
-   CSS failsafe 6s dự phòng nếu JS lỗi. */
+/* Boot loader: ẩn ngay khi trang tải xong (load) + 200ms — KHÔNG chờ cứng 3s
+   (trước đây web tải xong ở ~0.5s vẫn bị che 3s → cảm giác "khựng").
+   Failsafe: nếu load treo (CDN chậm) → 6s vẫn ẩn (trùng CSS failsafe). */
 (function () {
   var el = document.getElementById('boot-loader');
   if (!el) return;
-  setTimeout(function () {
+  var done = false;
+  function go() {
+    if (done) return;
+    done = true;
     el.classList.add('done');
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
-  }, 3000);
+  }
+  if (document.readyState === 'complete') setTimeout(go, 200);
+  else window.addEventListener('load', function () { setTimeout(go, 200); });
+  setTimeout(go, 6000);   // failsafe
 })();
 </script>
 
@@ -1098,9 +1259,35 @@ tbody tr:last-child td{border-bottom:none}
     </div>
   </aside>
 
+  <!-- ERP-TEST: rail trái — chỉ hiện khi xa top (laptop) -->
+  <nav class="pv-rail pv-off" aria-label="Điều hướng nhanh">
+    <div class="nav-item active" data-view="dashboard" role="button" tabindex="0">📊<span class="pv-rail-label">Dashboard</span></div>
+    <div class="nav-item" data-view="monitoring" role="button" tabindex="0">📈<span class="pv-rail-label">Giám sát</span></div>
+    <div class="nav-item" data-view="alarms" role="button" tabindex="0">🔔<span class="pv-rail-label">Cảnh báo</span><span class="nav-badge" id="nav-alarm-badge-rail"></span></div>
+    <div class="nav-item" data-view="devices" role="button" tabindex="0">🔌<span class="pv-rail-label">Thiết bị</span></div>
+    <div class="nav-item" data-view="reports" role="button" tabindex="0">📄<span class="pv-rail-label">Báo cáo</span></div>
+    <div class="nav-item" data-view="settings" role="button" tabindex="0">⚙️<span class="pv-rail-label">Cài đặt</span></div>
+  </nav>
+
   <main class="main">
     <header class="topbar">
       <button class="menu-toggle" id="menu-toggle">☰</button>
+
+      <div class="topbar-brand">
+        <div class="topbar-logo">⚡</div>
+        <h1>PumpVision</h1>
+      </div>
+
+      <nav class="topnav" aria-label="Điều hướng chính">
+        <div class="nav-item active" data-view="dashboard" role="button" tabindex="0">Dashboard</div>
+        <div class="nav-item" data-view="monitoring" role="button" tabindex="0">Giám sát</div>
+        <div class="nav-item" data-view="alarms" role="button" tabindex="0">Cảnh báo
+          <span class="nav-badge" id="nav-alarm-badge-top"></span>
+        </div>
+        <div class="nav-item" data-view="devices" role="button" tabindex="0">Thiết bị</div>
+        <div class="nav-item" data-view="reports" role="button" tabindex="0">Báo cáo</div>
+        <div class="nav-item" data-view="settings" role="button" tabindex="0">Cài đặt</div>
+      </nav>
 
       <div class="search-box">
         <input type="text" placeholder="Tìm kiếm cảnh báo, thiết bị..." id="global-search">
@@ -1746,6 +1933,8 @@ tbody tr:last-child td{border-bottom:none}
 <div id="toast"></div>
 
 <!-- Firebase Compat SDK -->
+<!-- PERF: Chart.js dời từ <head> xuống đây — parse HTML xong mới tải, không chặn paint đầu trang. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
@@ -1847,6 +2036,15 @@ function applyDevice(dev) {
   var p = $('picker'), a = $('app');
   if (p) p.classList.add('hidden');
   if (a) a.classList.add('ready');
+  // ERP-TEST: đồng bộ topbar/rail với vị trí cuộn hiện tại khi đổi device
+  // (tránh sót pv-hidden/pv-off oan từ phiên trước).
+  var tb = document.querySelector('.topbar');
+  var rl = document.querySelector('.pv-rail');
+  var ct = document.querySelector('.content');
+  if (tb && rl && ct) {
+    if (ct.scrollTop > 40) { tb.classList.add('pv-hidden'); rl.classList.add('pv-off'); }
+    else { tb.classList.remove('pv-hidden'); rl.classList.add('pv-off'); }
+  }
 }
 
 var pickerCards = document.querySelectorAll('.picker-card');
@@ -1911,8 +2109,11 @@ function navigate(view) {
   for (var j = 0; j < navs.length; j++) navs[j].classList.remove('active');
   var t = $('view-' + view);
   if (t) t.classList.add('active');
-  var n = document.querySelector('[data-view="' + view + '"]');
-  if (n) n.classList.add('active');
+  // ERP-TEST: có 2 bộ nav-item (sidebar phone + topnav laptop) → active cả 2,
+  // querySelector đơn lẻ chỉ bắt khớp thứ nhất (sidebar đang display:none
+  // trên laptop → nút trên topbar không bao giờ sáng).
+  var navMatches = document.querySelectorAll('[data-view="' + view + '"]');
+  for (var q = 0; q < navMatches.length; q++) navMatches[q].classList.add('active');
   if (view === 'alarms') markAlarmsRead();
   try { location.hash = view; } catch(e) {}
   if (window.innerWidth <= 768) {
@@ -1925,8 +2126,52 @@ var navItems = document.querySelectorAll('.nav-item');
 for (var ni = 0; ni < navItems.length; ni++) {
   (function(item) {
     item.addEventListener('click', function() { navigate(item.getAttribute('data-view')); });
+    // ERP-TEST: topnav là div[role=button] → hỗ trợ phím Enter/Space (WCAG 2.1.1).
+    item.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        navigate(item.getAttribute('data-view'));
+      }
+    });
   })(navItems[ni]);
 }
+
+/* =====================================================================
+   ERP-TEST: TOPBAR ↔ RAIL TRÁI (chỉ laptop)
+   - Kịch trên (≤40px): topbar LUÔN hiện, rail ẩn.
+   - Xa top (>40px): topbar ẨN mọi vị trí; rail ẩn khi cuộn xuống,
+     hiện lại khi cuộn lên tích lũy ≥50px (đủ để "tìm nav" mà không
+     phải cuộn nhiều, không hiện ngay khi mới nhích).
+   Nguồn cuộn là .content (overflow-y:auto), KHÔNG phải window.
+   ===================================================================== */
+(function() {
+  var scroller = document.querySelector('.content');
+  var bar = document.querySelector('.topbar');
+  var rail = document.querySelector('.pv-rail');
+  if (!scroller || !bar || !rail) return;
+  var lastY = scroller.scrollTop, upAcc = 0;
+  var RAIL_UP_PX = 50;   // cuộn lên tích lũy ≥50px mới hiện rail
+
+  scroller.addEventListener('scroll', function() {
+    if (document.body.getAttribute('data-device') !== 'laptop') return;
+    var y = scroller.scrollTop, dy = y - lastY;
+    if (y <= 40) {                       // kịch trên → topbar hiện, rail ẩn
+      upAcc = 0;
+      bar.classList.remove('pv-hidden');
+      rail.classList.add('pv-off');
+    } else {                             // xa top → topbar ẩn tuyệt đối
+      bar.classList.add('pv-hidden');
+      if (dy > 0) {                      // cuộn xuống → rail ẩn
+        upAcc = 0;
+        rail.classList.add('pv-off');
+      } else if (dy < 0) {               // cuộn lên đủ ngưỡng → rail hiện
+        upAcc += -dy;
+        if (upAcc >= RAIL_UP_PX) { upAcc = 0; rail.classList.remove('pv-off'); }
+      }
+    }
+    lastY = y;
+  }, { passive: true });
+})();
 
 /* =====================================================================
    CLOCK (không có trong layout này — giữ placeholder)
@@ -2327,6 +2572,11 @@ function renderAlarmStats() {
     if (alarmTs(state.alarms[k]) > seenTs) unread++;
   }
   if (badge) badge.textContent = unread > 0 ? String(unread) : '';
+  // ERP-TEST: badge trên topnav laptop (sidebar ẩn → badge cũ không thấy).
+  var badges = document.querySelectorAll('.nav-badge');
+  for (var bi = 0; bi < badges.length; bi++) {
+    badges[bi].textContent = unread > 0 ? String(unread) : '';
+  }
   var bell = $('bell-dot');
   if (bell) bell.style.display = unread > 0 ? 'block' : 'none';
 }
@@ -3308,7 +3558,9 @@ window.addEventListener('error', function(e) {
      Monitoring Over Time cũ). Panel mon DÙNG LẠI card chart-live/chart-live-h
      có sẵn (render bởi renderDashboard — không nhân đôi chart).
      Bundle UMD tự chứa React + three (không npm install, không build lại), ?v=0.1.0. -->
-<script src="assets/server-room-twin.umd.js?v=0.1.0"></script>
+<!-- PERF: UMD 1.18MB (React+three) defer — tải nền, không chặn parse; code dưới
+     đã guard typeof ServerRoomTwin + retry 500ms nên mount vẫn đúng. -->
+<script src="assets/server-room-twin.umd.js?v=0.1.0" defer></script>
 <script>
 (function () {
   var twinHandle = null;
